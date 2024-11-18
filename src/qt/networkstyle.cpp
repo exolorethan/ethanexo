@@ -1,5 +1,5 @@
-// Copyright (c) 2014-2019 The Bitcoin Core developers
-// Copyright (c) 2014-2023 The Dash Core developers
+// Copyright (c) 2014 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -12,8 +12,6 @@
 #include <tinyformat.h>
 #include <util/system.h>
 
-#include <chainparamsbase.h>
-
 #include <QApplication>
 
 static const struct {
@@ -24,10 +22,11 @@ static const struct {
     const std::string titleAddText;
 } network_styles[] = {
     {"main", QAPP_APP_NAME_DEFAULT, 0, 0, ""},
-    {"test", QAPP_APP_NAME_TESTNET, 190, 20},
+    {"test", QAPP_APP_NAME_TESTNET, 190, 20, QT_TRANSLATE_NOOP("SplashScreen", "[testnet]")},
     {"devnet", QAPP_APP_NAME_DEVNET, 190, 20, "[devnet: %s]"},
-    {"regtest", QAPP_APP_NAME_REGTEST, 160, 30}
+    {"regtest", QAPP_APP_NAME_REGTEST, 160, 30, "[regtest]"}
 };
+static const unsigned network_styles_count = sizeof(network_styles)/sizeof(*network_styles);
 
 void NetworkStyle::rotateColor(QColor& col, const int iconColorHueShift, const int iconColorSaturationReduction)
 {
@@ -65,12 +64,12 @@ void NetworkStyle::rotateColors(QImage& img, const int iconColorHueShift, const 
 NetworkStyle::NetworkStyle(const QString &_appName, const int iconColorHueShift, const int iconColorSaturationReduction, const char *_titleAddText):
     appName(_appName),
     titleAddText(qApp->translate("SplashScreen", _titleAddText)),
-    badgeColor(QColor(0, 141, 228)) // default badge color is the original Dash's blue, regardless of the current theme
+    badgeColor(QColor(0, 141, 228)) // default badge color is the original Ethanexo's blue, regardless of the current theme
 {
     // Allow for separate UI settings for testnets
     QApplication::setApplicationName(appName);
     // load pixmap
-    QPixmap appIconPixmap(":/icons/dash");
+    QPixmap appIconPixmap(":/icons/ethanexo");
 
     if(iconColorHueShift != 0 && iconColorSaturationReduction != 0)
     {
@@ -88,25 +87,24 @@ NetworkStyle::NetworkStyle(const QString &_appName, const int iconColorHueShift,
     splashImage         = QPixmap(":/images/splash");
 }
 
-const NetworkStyle* NetworkStyle::instantiate(const std::string& networkId)
+const NetworkStyle *NetworkStyle::instantiate(const QString &networkId)
 {
-    std::string titleAddText = networkId == CBaseChainParams::MAIN ? "" : strprintf("[%s]", networkId);
-    for (const auto& network_style : network_styles)
+    for (unsigned x=0; x<network_styles_count; ++x)
     {
-        if (networkId == network_style.networkId)
+        if (networkId == network_styles[x].networkId)
         {
-            std::string appName = network_style.appName;
-            std::string titleAddText = network_style.titleAddText;
+            std::string appName = network_styles[x].appName;
+            std::string titleAddText = network_styles[x].titleAddText;
 
-            if (networkId == CBaseChainParams::DEVNET.c_str()) {
+            if (networkId == QString(CBaseChainParams::DEVNET.c_str())) {
                 appName = strprintf(appName, gArgs.GetDevNetName());
                 titleAddText = strprintf(titleAddText, gArgs.GetDevNetName());
             }
 
             return new NetworkStyle(
                     appName.c_str(),
-                    network_style.iconColorHueShift,
-                    network_style.iconColorSaturationReduction,
+                    network_styles[x].iconColorHueShift,
+                    network_styles[x].iconColorSaturationReduction,
                     titleAddText.c_str());
         }
     }

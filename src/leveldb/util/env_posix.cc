@@ -53,7 +53,7 @@ int g_mmap_limit = kDefaultMmapLimit;
 constexpr const int kOpenBaseFlags = O_CLOEXEC;
 #else
 constexpr const int kOpenBaseFlags = 0;
-#endif  // defined(HAVE_O_CLOEXEC)
+#endif  // HAVE_O_CLOEXEC
 
 constexpr const size_t kWritableFileBufferSize = 65536;
 

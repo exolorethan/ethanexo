@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2019 The Bitcoin Core developers
+// Copyright (c) 2009-2015 The Bitcoin Core developers
 // Copyright (c) 2017 The Zcash developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -17,16 +17,11 @@
 
 
 /**
+ * secure_allocator is defined in allocators.h
  * CPrivKey is a serialized private key, with all parameters included
  * (SIZE bytes)
  */
 typedef std::vector<unsigned char, secure_allocator<unsigned char> > CPrivKey;
-
-/** Size of ECDH shared secrets. */
-constexpr static size_t ECDH_SECRET_SIZE = CSHA256::OUTPUT_SIZE;
-
-// Used to represent ECDH shared secret (ECDH_SECRET_SIZE bytes)
-using ECDHSecret = std::array<std::byte, ECDH_SECRET_SIZE>;
 
 /** An encapsulated private key. */
 class CKey
@@ -91,7 +86,6 @@ public:
 
     //! Simple read-only vector-like interface.
     unsigned int size() const { return (fValid ? keydata.size() : 0); }
-    const std::byte* data() const { return reinterpret_cast<const std::byte*>(keydata.data()); }
     const unsigned char* begin() const { return keydata.data(); }
     const unsigned char* end() const { return keydata.data() + size(); }
 
@@ -145,27 +139,6 @@ public:
 
     //! Load private key and check that public key matches.
     bool Load(const CPrivKey& privkey, const CPubKey& vchPubKey, bool fSkipCheck);
-
-    /** Create an ellswift-encoded public key for this key, with specified entropy.
-     *
-     *  entropy must be a 32-byte span with additional entropy to use in the encoding. Every
-     *  public key has ~2^256 different encodings, and this function will deterministically pick
-     *  one of them, based on entropy. Note that even without truly random entropy, the
-     *  resulting encoding will be indistinguishable from uniform to any adversary who does not
-     *  know the private key (because the private key itself is always used as entropy as well).
-     */
-    EllSwiftPubKey EllSwiftCreate(Span<const std::byte> entropy) const;
-
-    /** Compute a BIP324-style ECDH shared secret.
-     *
-     *  - their_ellswift: EllSwiftPubKey that was received from the other side.
-     *  - our_ellswift: EllSwiftPubKey that was sent to the other side (must have been generated
-     *                  from *this using EllSwiftCreate()).
-     *  - initiating: whether we are the initiating party (true) or responding party (false).
-     */
-    ECDHSecret ComputeBIP324ECDHSecret(const EllSwiftPubKey& their_ellswift,
-                                       const EllSwiftPubKey& our_ellswift,
-                                       bool initiating) const;
 };
 
 struct CExtKey {
@@ -178,7 +151,7 @@ struct CExtKey {
     friend bool operator==(const CExtKey& a, const CExtKey& b)
     {
         return a.nDepth == b.nDepth &&
-            memcmp(a.vchFingerprint, b.vchFingerprint, sizeof(vchFingerprint)) == 0 &&
+            memcmp(&a.vchFingerprint[0], &b.vchFingerprint[0], sizeof(vchFingerprint)) == 0 &&
             a.nChild == b.nChild &&
             a.chaincode == b.chaincode &&
             a.key == b.key;
@@ -188,7 +161,26 @@ struct CExtKey {
     void Decode(const unsigned char code[BIP32_EXTKEY_SIZE]);
     bool Derive(CExtKey& out, unsigned int nChild) const;
     CExtPubKey Neuter() const;
-    void SetSeed(Span<const std::byte> seed);
+    void SetSeed(const unsigned char* seed, unsigned int nSeedLen);
+    template <typename Stream>
+    void Serialize(Stream& s) const
+    {
+        unsigned int len = BIP32_EXTKEY_SIZE;
+        ::WriteCompactSize(s, len);
+        unsigned char code[BIP32_EXTKEY_SIZE];
+        Encode(code);
+        s.write((const char *)&code[0], len);
+    }
+    template <typename Stream>
+    void Unserialize(Stream& s)
+    {
+        unsigned int len = ::ReadCompactSize(s);
+        unsigned char code[BIP32_EXTKEY_SIZE];
+        if (len != BIP32_EXTKEY_SIZE)
+            throw std::runtime_error("Invalid extended key size\n");
+        s.read((char *)&code[0], len);
+        Decode(code);
+    }
 };
 
 /** Initialize the elliptic curve support. May not be called twice without calling ECC_Stop first. */

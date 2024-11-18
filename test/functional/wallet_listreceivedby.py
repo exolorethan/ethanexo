@@ -10,13 +10,18 @@ from test_framework.util import (
     assert_array_result,
     assert_equal,
     assert_raises_rpc_error,
+    sync_blocks,
 )
-from test_framework.wallet_util import test_address
 
 
 class ReceivedByTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
+
+    def import_deterministic_coinbase_privkeys(self):
+        assert_equal(0, len(self.nodes[1].listreceivedbyaddress(minconf=0, include_empty=True, include_watchonly=True)))
+        super().import_deterministic_coinbase_privkeys()
+        self.num_cb_reward_addresses = len(self.nodes[1].listreceivedbyaddress(minconf=0, include_empty=True, include_watchonly=True))
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -24,11 +29,8 @@ class ReceivedByTest(BitcoinTestFramework):
 
     def run_test(self):
         # Generate block to get out of IBD
-        self.generate(self.nodes[0], 1)
-        self.sync_blocks()
-
-        # save the number of coinbase reward addresses so far
-        num_cb_reward_addresses = len(self.nodes[1].listreceivedbyaddress(minconf=0, include_empty=True, include_watchonly=True))
+        self.nodes[0].generate(1)
+        sync_blocks(self.nodes)
 
         self.log.info("listreceivedbyaddress Test")
 
@@ -43,7 +45,8 @@ class ReceivedByTest(BitcoinTestFramework):
                             {},
                             True)
         # Bury Tx under 10 block so it will be returned by listreceivedbyaddress
-        self.generate(self.nodes[1], 10)
+        self.nodes[1].generate(10)
+        self.sync_all()
         assert_array_result(self.nodes[1].listreceivedbyaddress(),
                             {"address": addr},
                             {"address": addr, "label": "", "amount": Decimal("0.1"), "confirmations": 10, "txids": [txid, ]})
@@ -74,10 +77,11 @@ class ReceivedByTest(BitcoinTestFramework):
         assert_raises_rpc_error(-4, "address_filter parameter was invalid", self.nodes[1].listreceivedbyaddress, minconf=0, addlocked=True, include_empty=True, include_watchonly=True, address_filter="bamboozling")
         # Another address receive money
         res = self.nodes[1].listreceivedbyaddress(0, True, True, True)
-        assert_equal(len(res), 2 + num_cb_reward_addresses)  # Right now 2 entries
+        assert_equal(len(res), 2 + self.num_cb_reward_addresses)  # Right now 2 entries
         other_addr = self.nodes[1].getnewaddress()
         txid2 = self.nodes[0].sendtoaddress(other_addr, 0.1)
-        self.generate(self.nodes[0], 1)
+        self.nodes[0].generate(1)
+        self.sync_all()
         # Same test as above should still pass
         expected = {"address": addr, "label": "", "amount": Decimal("0.1"), "confirmations": 11, "txids": [txid, ]}
         res = self.nodes[1].listreceivedbyaddress(0, True, True, True, addr)
@@ -90,7 +94,7 @@ class ReceivedByTest(BitcoinTestFramework):
         assert_equal(len(res), 1)
         # Should be two entries though without filter
         res = self.nodes[1].listreceivedbyaddress(0, True, True, True)
-        assert_equal(len(res), 3 + num_cb_reward_addresses)  # Became 3 entries
+        assert_equal(len(res), 3 + self.num_cb_reward_addresses)  # Became 3 entries
 
         # Not on random addr
         other_addr = self.nodes[0].getnewaddress()  # note on node[0]! just a random addr
@@ -113,7 +117,8 @@ class ReceivedByTest(BitcoinTestFramework):
         assert_equal(balance, Decimal("0.1"))
 
         # Bury Tx under 10 block so it will be returned by the default getreceivedbyaddress
-        self.generate(self.nodes[1], 10)
+        self.nodes[1].generate(10)
+        self.sync_all()
         balance = self.nodes[1].getreceivedbyaddress(addr)
         assert_equal(balance, Decimal("0.1"))
 
@@ -125,7 +130,7 @@ class ReceivedByTest(BitcoinTestFramework):
         # set pre-state
         label = ''
         address = self.nodes[1].getnewaddress()
-        test_address(self.nodes[1], address, labels=[label])
+        assert_equal(self.nodes[1].getaddressinfo(address)['label'], label)
         received_by_label_json = [r for r in self.nodes[1].listreceivedbylabel() if r["label"] == label][0]
         balance_by_label = self.nodes[1].getreceivedbylabel(label)
 
@@ -141,7 +146,8 @@ class ReceivedByTest(BitcoinTestFramework):
         balance = self.nodes[1].getreceivedbylabel(label)
         assert_equal(balance, balance_by_label)
 
-        self.generate(self.nodes[1], 10)
+        self.nodes[1].generate(10)
+        self.sync_all()
         # listreceivedbylabel should return updated received list
         assert_array_result(self.nodes[1].listreceivedbylabel(),
                             {"label": label},

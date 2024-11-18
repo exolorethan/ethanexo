@@ -1,19 +1,15 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_QT_RECENTREQUESTSTABLEMODEL_H
 #define BITCOIN_QT_RECENTREQUESTSTABLEMODEL_H
 
-#include <qt/sendcoinsrecipient.h>
-
-#include <string>
+#include <qt/walletmodel.h>
 
 #include <QAbstractTableModel>
 #include <QStringList>
 #include <QDateTime>
-
-class WalletModel;
 
 class RecentRequestEntry
 {
@@ -28,9 +24,9 @@ public:
 
     SERIALIZE_METHODS(RecentRequestEntry, obj) {
         unsigned int date_timet;
-        SER_WRITE(obj, date_timet = obj.date.toSecsSinceEpoch());
+        SER_WRITE(obj, date_timet = obj.date.toTime_t());
         READWRITE(obj.nVersion, obj.id, date_timet, obj.recipient);
-        SER_READ(obj, obj.date = QDateTime::fromSecsSinceEpoch(date_timet));
+        SER_READ(obj, obj.date = QDateTime::fromTime_t(date_timet));
     }
 };
 
@@ -39,14 +35,14 @@ class RecentRequestEntryLessThan
 public:
     RecentRequestEntryLessThan(int nColumn, Qt::SortOrder fOrder):
         column(nColumn), order(fOrder) {}
-    bool operator()(const RecentRequestEntry& left, const RecentRequestEntry& right) const;
+    bool operator()(RecentRequestEntry &left, RecentRequestEntry &right) const;
 
 private:
     int column;
     Qt::SortOrder order;
 };
 
-/** Model for list of recently generated payment requests / dash: URIs.
+/** Model for list of recently generated payment requests / ethanexo: URIs.
  * Part of wallet model.
  */
 class RecentRequestsTableModel: public QAbstractTableModel

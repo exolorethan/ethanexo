@@ -1,5 +1,5 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2023 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -55,7 +55,7 @@ struct AddressTableEntryLessThan
 static AddressTableEntry::Type translateTransactionType(const QString &strPurpose, bool isMine)
 {
     AddressTableEntry::Type addressType = AddressTableEntry::Hidden;
-    // "refund" addresses aren't shown, and change addresses aren't returned by getAddresses at all.
+    // "refund" addresses aren't shown, and change addresses aren't in mapAddressBook at all.
     if (strPurpose == "send")
         addressType = AddressTableEntry::Sending;
     else if (strPurpose == "receive")
@@ -195,38 +195,42 @@ QVariant AddressTableModel::data(const QModelIndex &index, int role) const
 
     AddressTableEntry *rec = static_cast<AddressTableEntry*>(index.internalPointer());
 
-    const auto column = static_cast<ColumnIndex>(index.column());
-    if (role == Qt::DisplayRole || role == Qt::EditRole) {
-        switch (column) {
+    if(role == Qt::DisplayRole || role == Qt::EditRole)
+    {
+        switch(index.column())
+        {
         case Label:
-            if (rec->label.isEmpty() && role == Qt::DisplayRole) {
+            if(rec->label.isEmpty() && role == Qt::DisplayRole)
+            {
                 return tr("(no label)");
-            } else {
+            }
+            else
+            {
                 return rec->label;
             }
         case Address:
             return rec->address;
-        } // no default case, so the compiler can warn about missing cases
-        assert(false);
-    } else if (role == Qt::FontRole) {
-        switch (column) {
-        case Label:
-            return QFont();
-        case Address:
-            return GUIUtil::getFontNormal();
-        } // no default case, so the compiler can warn about missing cases
-        assert(false);
-    } else if (role == TypeRole) {
+        }
+    }
+    else if (role == Qt::FontRole)
+    {
+        QFont font;
+        if(index.column() == Address)
+        {
+            font = GUIUtil::getFontNormal();
+        }
+        return font;
+    }
+    else if (role == TypeRole)
+    {
         switch(rec->type)
         {
         case AddressTableEntry::Sending:
             return Send;
         case AddressTableEntry::Receiving:
             return Receive;
-        case AddressTableEntry::Hidden:
-            return {};
-        } // no default case, so the compiler can warn about missing cases
-        assert(false);
+        default: break;
+        }
     }
     return QVariant();
 }
@@ -254,7 +258,7 @@ bool AddressTableModel::setData(const QModelIndex &index, const QVariant &value,
         } else if(index.column() == Address) {
             CTxDestination newAddress = DecodeDestination(value.toString().toStdString());
             // Refuse to set invalid address, set error status and return false
-            if(std::get_if<CNoDestination>(&newAddress))
+            if(boost::get<CNoDestination>(&newAddress))
             {
                 editStatus = INVALID_ADDRESS;
                 return false;
@@ -333,7 +337,7 @@ QModelIndex AddressTableModel::index(int row, int column, const QModelIndex &par
 void AddressTableModel::updateEntry(const QString &address,
         const QString &label, bool isMine, const QString &purpose, int status)
 {
-    // Update address book model from Dash core
+    // Update address book model from ETXO core
     priv->updateEntry(address, label, isMine, purpose, status);
 }
 
@@ -360,14 +364,12 @@ QString AddressTableModel::addRow(const QString &type, const QString &label, con
                 return QString();
             }
         }
-        // Add entry
-        walletModel->wallet().setAddressBook(DecodeDestination(strAddress), strLabel, "send");
     }
     else if(type == Receive)
     {
         // Generate a new address to associate with given label
-        CTxDestination dest;
-        if(!walletModel->wallet().getNewDestination(strLabel, dest))
+        CPubKey newKey;
+        if(!walletModel->wallet().getKeyFromPool(false /* internal */, newKey))
         {
             WalletModel::UnlockContext ctx(walletModel->requestUnlock());
             if(!ctx.isValid())
@@ -376,18 +378,22 @@ QString AddressTableModel::addRow(const QString &type, const QString &label, con
                 editStatus = WALLET_UNLOCK_FAILURE;
                 return QString();
             }
-            if(!walletModel->wallet().getNewDestination(strLabel, dest))
+            if(!walletModel->wallet().getKeyFromPool(false /* internal */, newKey))
             {
                 editStatus = KEY_GENERATION_FAILURE;
                 return QString();
             }
         }
-        strAddress = EncodeDestination(dest);
+        strAddress = EncodeDestination(newKey.GetID());
     }
     else
     {
         return QString();
     }
+
+    // Add entry
+    walletModel->wallet().setAddressBook(DecodeDestination(strAddress), strLabel,
+                           (type == Send ? "send" : "receive"));
     return QString::fromStdString(strAddress);
 }
 

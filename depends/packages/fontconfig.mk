@@ -8,8 +8,6 @@ $(package)_patches=remove_char_width_usage.patch gperf_header_regen.patch
 
 define $(package)_set_vars
   $(package)_config_opts=--disable-docs --disable-static --disable-libxml2 --disable-iconv
-  $(package)_config_opts += --disable-dependency-tracking --enable-option-checking
-  $(package)_cflags += -Wno-implicit-function-declaration
 endef
 
 define $(package)_preprocess_cmds
@@ -27,8 +25,4 @@ endef
 
 define $(package)_stage_cmds
   $(MAKE) DESTDIR=$($(package)_staging_dir) install
-endef
-
-define $(package)_postprocess_cmds
-  rm -rf var lib/*.la
 endef

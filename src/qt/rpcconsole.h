@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -10,12 +10,10 @@
 #include <qt/trafficgraphdata.h>
 
 #include <net.h>
-#include <uint256.h>
 
-#include <QByteArray>
+#include <QWidget>
 #include <QCompleter>
 #include <QThread>
-#include <QWidget>
 
 class ClientModel;
 class RPCTimerInterface;
@@ -31,7 +29,6 @@ namespace Ui {
 
 QT_BEGIN_NAMESPACE
 class QButtonGroup;
-class QDateTime;
 class QMenu;
 class QItemSelection;
 QT_END_NAMESPACE
@@ -50,7 +47,7 @@ public:
         return RPCParseCommandLine(&node, strResult, strCommand, true, pstrFilteredOut, wallet_model);
     }
 
-    void setClientModel(ClientModel *model = nullptr, int bestblock_height = 0, int64_t bestblock_date = 0, uint256 bestblock_hash = uint256(), double verification_progress = 0.0);
+    void setClientModel(ClientModel *model);
     void addWallet(WalletModel * const walletModel);
     void removeWallet(WalletModel* const walletModel);
 
@@ -62,18 +59,17 @@ public:
         CMD_ERROR
     };
 
-    enum class TabTypes {
-        INFO,
-        CONSOLE,
-        GRAPH,
-        PEERS,
-        REPAIR
+    enum TabTypes {
+        TAB_INFO = 0,
+        TAB_CONSOLE = 1,
+        TAB_GRAPH = 2,
+        TAB_PEERS = 3,
+        TAB_REPAIR = 4
     };
 
-    std::vector<TabTypes> tabs() const { return {TabTypes::INFO, TabTypes::CONSOLE, TabTypes::GRAPH, TabTypes::PEERS, TabTypes::REPAIR}; }
+    std::vector<TabTypes> tabs() const { return {TAB_INFO, TAB_CONSOLE, TAB_GRAPH, TAB_PEERS, TAB_REPAIR}; }
 
     QString tabTitle(TabTypes tab_type) const;
-    QKeySequence tabShortcut(TabTypes tab_type) const;
 
 protected:
     virtual bool eventFilter(QObject* obj, QEvent *event) override;
@@ -100,18 +96,20 @@ private Q_SLOTS:
     void showOrHideBanTableIfRequired();
     /** clear the selected node */
     void clearSelectedNode();
-    /** show detailed information on ui about selected node */
-    void updateDetailWidget();
 
 public Q_SLOTS:
-    void clear(bool keep_prompt = false);
+    void clear(bool clearHistory = true);
     void fontBigger();
     void fontSmaller();
     void setFontSize(int newSize);
 
     /** Wallet repair options */
+    void walletSalvage();
     void walletRescan1();
     void walletRescan2();
+    void walletZaptxes1();
+    void walletZaptxes2();
+    void walletUpgrade();
     void walletReindex();
 
     /** Append the message to the message widget */
@@ -135,6 +133,12 @@ public Q_SLOTS:
     void browseHistory(int offset);
     /** Scroll console view to end */
     void scrollToEnd();
+    /** Handle selection of peer in peers list */
+    void peerSelected(const QItemSelection &selected, const QItemSelection &deselected);
+    /** Handle selection caching before update */
+    void peerLayoutAboutToChange();
+    /** Handle updated peer information */
+    void peerLayoutChanged();
     /** Disconnect a selected node on the Peers tab */
     void disconnectSelectedNode();
     /** Ban a selected node on the Peers tab */
@@ -151,15 +155,12 @@ Q_SIGNALS:
     void handleRestart(QStringList args);
 
 private:
-    struct TranslatedStrings {
-        const QString yes{tr("Yes")}, no{tr("No")}, to{tr("To")}, from{tr("From")},
-            ban_for{tr("Ban for")}, na{tr("N/A")}, unknown{tr("Unknown")};
-    } const ts;
-
     void startExecutor();
     void setTrafficGraphRange(TrafficGraphData::GraphRange range);
     /** Build parameter list for restart */
     void buildParameterlist(QString arg);
+    /** show detailed information on ui about selected node */
+    void updateNodeDetail(const CNodeCombinedStats *stats);
     /** Set required icons for buttons inside the dialog */
     void setButtonIcons();
     /** Reload some themes related widgets */
@@ -190,21 +191,9 @@ private:
     QCompleter *autoCompleter = nullptr;
     QThread thread;
     WalletModel* m_last_wallet_model{nullptr};
-    bool m_is_executing{false};
-    QByteArray m_peer_widget_header_state;
-    QByteArray m_banlist_widget_header_state;
 
     /** Update UI with latest network info from model. */
     void updateNetworkState();
-
-    /** Helper for the output of a time duration field. Inputs are UNIX epoch times. */
-    QString TimeDurationField(std::chrono::seconds time_now, std::chrono::seconds time_at_event) const
-    {
-        return time_at_event.count() ? GUIUtil::formatDurationStr(time_now - time_at_event) : tr("Never");
-    }
-
-private Q_SLOTS:
-    void updateAlerts(const QString& warnings);
 };
 
 #endif // BITCOIN_QT_RPCCONSOLE_H

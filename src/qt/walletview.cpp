@@ -1,14 +1,12 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <qt/walletview.h>
 
-#include <node/psbt.h>
-#include <node/transaction.h>
-#include <policy/policy.h>
 #include <qt/addressbookpage.h>
 #include <qt/askpassphrasedialog.h>
+#include <qt/bitcoingui.h>
 #include <qt/clientmodel.h>
 #include <qt/guiutil.h>
 #include <qt/optionsmodel.h>
@@ -22,8 +20,7 @@
 #include <qt/walletmodel.h>
 
 #include <interfaces/node.h>
-#include <node/ui_interface.h>
-#include <util/strencodings.h>
+#include <ui_interface.h>
 
 #include <QAction>
 #include <QActionGroup>
@@ -92,21 +89,18 @@ WalletView::WalletView(QWidget* parent) :
         masternodeListPage = new MasternodeList();
         addWidget(masternodeListPage);
     }
-    if (settings.value("fShowGovernanceTab").toBool()) {
+    /*if (settings.value("fShowGovernanceTab").toBool()) {
         governanceListPage = new GovernanceList();
         addWidget(governanceListPage);
-    }
+    } */ //Hide Governance RaptorHide
 
-    connect(overviewPage, &OverviewPage::transactionClicked, this, &WalletView::transactionClicked);
     // Clicking on a transaction on the overview pre-selects the transaction on the transaction history page
-    connect(overviewPage, &OverviewPage::transactionClicked, transactionView, qOverload<const QModelIndex&>(&TransactionView::focusTransaction));
-    connect(overviewPage, &OverviewPage::outOfSyncWarningClicked, this, &WalletView::outOfSyncWarningClicked);
+    connect(overviewPage, &OverviewPage::transactionClicked, transactionView, static_cast<void (TransactionView::*)(const QModelIndex&)>(&TransactionView::focusTransaction));
+    connect(overviewPage, &OverviewPage::outOfSyncWarningClicked, this, &WalletView::requestedSyncWarningInfo);
 
-    connect(sendCoinsPage, &SendCoinsDialog::coinsSent, this, &WalletView::coinsSent);
-    connect(coinJoinCoinsPage, &SendCoinsDialog::coinsSent, this, &WalletView::coinsSent);
     // Highlight transaction after send
-    connect(sendCoinsPage, &SendCoinsDialog::coinsSent, transactionView, qOverload<const uint256&>(&TransactionView::focusTransaction));
-    connect(coinJoinCoinsPage, &SendCoinsDialog::coinsSent, transactionView, qOverload<const uint256&>(&TransactionView::focusTransaction));
+    connect(sendCoinsPage, &SendCoinsDialog::coinsSent, transactionView, static_cast<void (TransactionView::*)(const uint256&)>(&TransactionView::focusTransaction));
+    connect(coinJoinCoinsPage, &SendCoinsDialog::coinsSent, transactionView, static_cast<void (TransactionView::*)(const uint256&)>(&TransactionView::focusTransaction));
 
     // Update wallet with sum of selected transactions
     connect(transactionView, &TransactionView::trxAmount, this, &WalletView::trxAmount);
@@ -121,8 +115,6 @@ WalletView::WalletView(QWidget* parent) :
     // Pass through messages from transactionView
     connect(transactionView, &TransactionView::message, this, &WalletView::message);
 
-    connect(this, &WalletView::setPrivacy, overviewPage, &OverviewPage::setPrivacy);
-
     GUIUtil::disableMacFocusRect(this);
 }
 
@@ -130,27 +122,47 @@ WalletView::~WalletView()
 {
 }
 
+void WalletView::setBitcoinGUI(BitcoinGUI *gui)
+{
+    if (gui)
+    {
+        // Clicking on a transaction on the overview page simply sends you to transaction history page
+        connect(overviewPage, &OverviewPage::transactionClicked, gui, &BitcoinGUI::gotoHistoryPage);
+
+        // Navigate to transaction history page after send
+        connect(sendCoinsPage, &SendCoinsDialog::coinsSent, gui, &BitcoinGUI::gotoHistoryPage);
+        connect(coinJoinCoinsPage, &SendCoinsDialog::coinsSent, gui, &BitcoinGUI::gotoHistoryPage);
+
+        // Receive and report messages
+        connect(this, &WalletView::message, [gui](const QString &title, const QString &message, unsigned int style) {
+            gui->message(title, message, style);
+        });
+
+        // Pass through encryption status changed signals
+        connect(this, &WalletView::encryptionStatusChanged, gui, &BitcoinGUI::updateWalletStatus);
+
+        // Pass through transaction notifications
+        connect(this, &WalletView::incomingTransaction, gui, &BitcoinGUI::incomingTransaction);
+
+        // Connect HD enabled state signal
+        connect(this, &WalletView::hdEnabledStatusChanged, gui, &BitcoinGUI::updateWalletStatus);
+    }
+}
+
 void WalletView::setClientModel(ClientModel *_clientModel)
 {
     this->clientModel = _clientModel;
 
-    if (overviewPage != nullptr) {
-        overviewPage->setClientModel(_clientModel);
-    }
-    if (sendCoinsPage != nullptr) {
-        sendCoinsPage->setClientModel(_clientModel);
-    }
-    if (coinJoinCoinsPage != nullptr) {
-        coinJoinCoinsPage->setClientModel(_clientModel);
-    }
+    overviewPage->setClientModel(_clientModel);
+    sendCoinsPage->setClientModel(_clientModel);
+    coinJoinCoinsPage->setClientModel(_clientModel);
     QSettings settings;
-    if (settings.value("fShowMasternodesTab").toBool() && masternodeListPage != nullptr) {
+    if (settings.value("fShowMasternodesTab").toBool()) {
         masternodeListPage->setClientModel(_clientModel);
     }
-    if (settings.value("fShowGovernanceTab").toBool() && governanceListPage != nullptr) {
+    /*if (settings.value("fShowGovernanceTab").toBool()) {
         governanceListPage->setClientModel(_clientModel);
-    }
-    if (walletModel) walletModel->setClientModel(_clientModel);
+    }*/ //Hide Governance RaptorHide
 }
 
 void WalletView::setWalletModel(WalletModel *_walletModel)
@@ -177,6 +189,10 @@ void WalletView::setWalletModel(WalletModel *_walletModel)
 
         // Handle changes in encryption status
         connect(_walletModel, &WalletModel::encryptionStatusChanged, this, &WalletView::encryptionStatusChanged);
+        updateEncryptionStatus();
+
+        // update HD status
+        Q_EMIT hdEnabledStatusChanged();
 
         // Balloon pop-up for new transaction
         connect(_walletModel->getTransactionTableModel(), &TransactionTableModel::rowsInserted, this, &WalletView::processNewTransaction);
@@ -218,13 +234,13 @@ void WalletView::processNewTransaction(const QModelIndex& parent, int start, int
     Q_EMIT incomingTransaction(date, walletModel->getOptionsModel()->getDisplayUnit(), amount, type, address, label, GUIUtil::HtmlEscape(walletModel->getWalletName()));
 }
 
-void WalletView::gotoGovernancePage()
+/*void WalletView::gotoGovernancePage()
 {
     QSettings settings;
     if (settings.value("fShowGovernanceTab").toBool()) {
         setCurrentWidget(governanceListPage);
     }
-}
+}*/ //Hide Governance RaptorHide
 
 void WalletView::gotoOverviewPage()
 {
@@ -300,6 +316,11 @@ void WalletView::showOutOfSyncWarning(bool fShow)
     overviewPage->showOutOfSyncWarning(fShow);
 }
 
+void WalletView::updateEncryptionStatus()
+{
+    Q_EMIT encryptionStatusChanged();
+}
+
 void WalletView::encryptWallet()
 {
     if(!walletModel)
@@ -308,15 +329,14 @@ void WalletView::encryptWallet()
     dlg.setModel(walletModel);
     dlg.exec();
 
-    Q_EMIT encryptionStatusChanged();
+    updateEncryptionStatus();
 }
 
 void WalletView::backupWallet()
 {
     QString filename = GUIUtil::getSaveFileName(this,
         tr("Backup Wallet"), QString(),
-        //: Name of the wallet data file format.
-        tr("Wallet Data") + QLatin1String(" (*.dat)"), nullptr);
+        tr("Wallet Data (*.dat)"), nullptr);
 
     if (filename.isEmpty())
         return;
@@ -382,6 +402,7 @@ void WalletView::showProgress(const QString &title, int nProgress)
         progressDialog = new QProgressDialog(title, tr("Cancel"), 0, 100, this);
         GUIUtil::PolishProgressDialog(progressDialog);
         progressDialog->setWindowModality(Qt::ApplicationModal);
+        progressDialog->setMinimumDuration(0);
         progressDialog->setAutoClose(false);
         progressDialog->setValue(0);
     } else if (nProgress == 100) {
@@ -397,6 +418,11 @@ void WalletView::showProgress(const QString &title, int nProgress)
             progressDialog->setValue(nProgress);
         }
     }
+}
+
+void WalletView::requestedSyncWarningInfo()
+{
+    Q_EMIT outOfSyncWarningClicked();
 }
 
 /** Update wallet with the sum of the selected transactions */

@@ -1,4 +1,4 @@
-// Copyright (c) 2021-2024 The Dash Core developers
+// Copyright (c) 2021 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,33 +11,23 @@
 
 namespace Consensus {
 
-enum class LLMQType : uint8_t {
+enum class LLMQType : uint8_t
+{
     LLMQ_NONE = 0xff,
 
-    LLMQ_50_60 = 1,  // 50 members, 30 (60%) threshold, one per hour
+    LLMQ_50_60 = 1, // 50 members, 30 (60%) threshold, one per hour
     LLMQ_400_60 = 2, // 400 members, 240 (60%) threshold, one every 12 hours
     LLMQ_400_85 = 3, // 400 members, 340 (85%) threshold, one every 24 hours
     LLMQ_100_67 = 4, // 100 members, 67 (67%) threshold, one per hour
-    LLMQ_60_75 = 5,  // 60 members, 45 (75%) threshold, one every 12 hours
-    LLMQ_25_67 = 6, // 25 members, 17 (67%) threshold, one per hour
 
     // for testing only
     LLMQ_TEST = 100, // 3 members, 2 (66%) threshold, one per hour. Params might differ when -llmqtestparams is used
 
     // for devnets only
-    LLMQ_DEVNET = 101, // 12 members, 6 (50%) threshold, one per hour. Params might differ when -llmqdevnetparams is used
-    LLMQ_DEVNET_PLATFORM = 107, // 12 members, 8 (67%) threshold, one per hour.
+    LLMQ_DEVNET = 101, // 10 members, 6 (60%) threshold, one per hour. Params might differ when -llmqdevnetparams is used
 
     // for testing activation of new quorums only
     LLMQ_TEST_V17 = 102, // 3 members, 2 (66%) threshold, one per hour. Params might differ when -llmqtestparams is used
-
-    // for testing only
-    LLMQ_TEST_DIP0024 = 103,     // 4 members, 3 (75%) threshold, one per hour.
-    LLMQ_TEST_INSTANTSEND = 104, // 3 members, 2 (66%) threshold, one per hour. Params might differ when -llmqtestinstantsendparams is used
-    LLMQ_TEST_PLATFORM = 106,    // 3 members, 2 (66%) threshold, one per hour.
-
-    // for devnets only. rotated version (v2) for devnets
-    LLMQ_DEVNET_DIP0024 = 105 // 8 members, 4 (50%) threshold, one per hour. Params might differ when -llmqdevnetparams is used
 };
 
 // Configures a LLMQ and its DKG
@@ -47,9 +37,6 @@ struct LLMQParams {
 
     // not consensus critical, only used in logging, RPC and UI
     std::string_view name;
-
-    // Whether this is a DIP0024 quorum or not
-    bool useRotation;
 
     // the size of the quorum, e.g. 50 or 400
     int size;
@@ -99,37 +86,16 @@ struct LLMQParams {
     // Number of quorums to consider "active" for signing sessions
     int signingActiveQuorumCount;
 
-    // Used for intra-quorum communication. This is the number of quorums for which we should keep old connections.
-    // For non-rotated quorums it should be at least one more than the active quorums set.
-    // For rotated quorums it should be equal to 2 x active quorums set.
+    // Used for intra-quorum communication. This is the number of quorums for which we should keep old connections. This
+    // should be at least one more then the active quorums set.
     int keepOldConnections;
-
-    // The number of quorums for which we should keep keys. Usually it's equal to signingActiveQuorumCount * 2.
-    // Unlike for other quorum types we want to keep data (secret key shares and vvec)
-    // for Platform quorums for much longer because Platform can be restarted and
-    // it must be able to re-sign stuff.
-
-    int keepOldKeys;
 
     // How many members should we try to send all sigShares to before we give up.
     int recoveryMembers;
-public:
-    [[nodiscard]] constexpr int max_cycles(int quorums_count) const
-    {
-        return useRotation ? quorums_count / signingActiveQuorumCount : quorums_count;
-    }
-
-    // For how many blocks recent DKG info should be kept
-    [[nodiscard]] constexpr int max_store_depth() const { return max_cycles(keepOldKeys) * dkgInterval; }
 };
 
-//static_assert(std::is_trivial_v<Consensus::LLMQParams>, "LLMQParams is not a trivial type");
-static_assert(std::is_trivially_copyable_v<Consensus::LLMQParams>, "LLMQParams is not trivially copyable");
-//static_assert(std::is_trivially_default_constructible_v<Consensus::LLMQParams>, "LLMQParams is not trivially default constructible");
-static_assert(std::is_trivially_assignable_v<Consensus::LLMQParams, Consensus::LLMQParams>, "LLMQParams is not trivially assignable");
 
-
-static constexpr std::array<LLMQParams, 14> available_llmqs = {
+static constexpr std::array<LLMQParams, 7> available_llmqs = {
 
     /**
      * llmq_test
@@ -139,7 +105,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
     LLMQParams{
         .type = LLMQType::LLMQ_TEST,
         .name = "llmq_test",
-        .useRotation = false,
         .size = 3,
         .minSize = 2,
         .threshold = 2,
@@ -153,45 +118,17 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
 
         .keepOldConnections = 3,
-        .keepOldKeys = 4,
         .recoveryMembers = 3,
     },
 
     /**
-     * llmq_test_instantsend (same as llmq_test but used for InstantSend exclusively)
-     * This quorum is only used for testing
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_TEST_INSTANTSEND,
-        .name = "llmq_test_instantsend",
-        .useRotation = false,
-        .size = 3,
-        .minSize = 2,
-        .threshold = 2,
-
-        .dkgInterval = 24, // one DKG per hour
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 10, // dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 18,
-        .dkgBadVotesThreshold = 2,
-
-        .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
-
-        .keepOldConnections = 3,
-        .keepOldKeys = 4,
-        .recoveryMembers = 3,
-    },
-
-    /**
-     * llmq_test (Dash Core 0.17) aka llmq_test_v17
+     * llmq_test (Ethanexo Core 0.17) aka llmq_test_v17
      * This quorum is only used for testing
      *
      */
     LLMQParams{
         .type = LLMQType::LLMQ_TEST_V17,
         .name = "llmq_test_v17",
-        .useRotation = false,
         .size = 3,
         .minSize = 2,
         .threshold = 2,
@@ -205,59 +142,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
 
         .keepOldConnections = 3,
-        .keepOldKeys = 4,
-        .recoveryMembers = 3,
-    },
-
-    /**
-     * llmq_test_dip0024
-     * This quorum is only used for testing
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_TEST_DIP0024,
-        .name = "llmq_test_dip0024",
-        .useRotation = true,
-        .size = 4,
-        .minSize = 4,
-        .threshold = 3,
-
-        .dkgInterval = 24, // DKG cycle
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 12, // signingActiveQuorumCount + dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 20,
-        .dkgBadVotesThreshold = 2,
-
-        .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
-
-        .keepOldConnections = 4,
-        .keepOldKeys = 4,
-        .recoveryMembers = 3,
-    },
-
-    /**
-     * llmq_test_platform
-     * This quorum is only used for testing
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_TEST_PLATFORM,
-        .name = "llmq_test_platform",
-        .useRotation = false,
-        .size = 3,
-        .minSize = 2,
-        .threshold = 2,
-
-        .dkgInterval = 24, // DKG cycle
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 10, // signingActiveQuorumCount + dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 18,
-        .dkgBadVotesThreshold = 2,
-
-        .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
-
-        .keepOldConnections = 4,
-        .keepOldKeys = 24 * 30 * 2, // 2 months of quorums
         .recoveryMembers = 3,
     },
 
@@ -269,8 +153,7 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
     LLMQParams{
         .type = LLMQType::LLMQ_DEVNET,
         .name = "llmq_devnet",
-        .useRotation = false,
-        .size = 12,
+        .size = 10,
         .minSize = 7,
         .threshold = 6,
 
@@ -280,66 +163,13 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .dkgMiningWindowEnd = 18,
         .dkgBadVotesThreshold = 7,
 
-        .signingActiveQuorumCount = 4, // just a few ones to allow easier testing
-
-        .keepOldConnections = 5,
-        .keepOldKeys = 8,
-        .recoveryMembers = 6,
-    },
-
-    /**
-     * llmq_devnet_dip0024
-     * This quorum is only used for testing on devnets
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_DEVNET_DIP0024,
-        .name = "llmq_devnet_dip0024",
-        .useRotation = true,
-        .size = 8,
-        .minSize = 6,
-        .threshold = 4,
-
-        .dkgInterval = 48, // DKG cycle
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 12, // signingActiveQuorumCount + dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 20,
-        .dkgBadVotesThreshold = 7,
-
-        .signingActiveQuorumCount = 2, // just a few ones to allow easier testing
+        .signingActiveQuorumCount = 3, // just a few ones to allow easier testing
 
         .keepOldConnections = 4,
-        .keepOldKeys = 4,
-        .recoveryMembers = 4,
-    },
-
-    /**
-     * llmq_devnet_platform
-     * This quorum is only used for testing on devnets
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_DEVNET_PLATFORM,
-        .name = "llmq_devnet_platform",
-        .useRotation = false,
-        .size = 12,
-        .minSize = 9,
-        .threshold = 8,
-
-        .dkgInterval = 24, // one DKG per hour
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 10, // dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 18,
-        .dkgBadVotesThreshold = 7,
-
-        .signingActiveQuorumCount = 4, // just a few ones to allow easier testing
-
-        .keepOldConnections = 5,
-        .keepOldKeys = 24 * 30 * 2, // 2 months of quorums
         .recoveryMembers = 6,
     },
 
-    /**
+/**
      * llmq_50_60
      * This quorum is deployed on mainnet and requires
      * 40 - 50 participants
@@ -348,7 +178,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
     LLMQParams{
         .type = LLMQType::LLMQ_50_60,
         .name = "llmq_50_60",
-        .useRotation = false,
         .size = 50,
         .minSize = 40,
         .threshold = 30,
@@ -361,33 +190,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
 
         .signingActiveQuorumCount = 24, // a full day worth of LLMQs
         .keepOldConnections = 25,
-        .keepOldKeys = 48,
-        .recoveryMembers = 25,
-    },
-
-    /**
-     * llmq_60_75
-     * This quorum is deployed on mainnet and requires
-     * 50 - 60 participants
-     *
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_60_75,
-        .name = "llmq_60_75",
-        .useRotation = true,
-        .size = 60,
-        .minSize = 50,
-        .threshold = 45,
-
-        .dkgInterval = 24 * 12, // DKG cycle every 12 hours
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 42, // signingActiveQuorumCount + dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 50,
-        .dkgBadVotesThreshold = 48,
-
-        .signingActiveQuorumCount = 32,
-        .keepOldConnections = 64,
-        .keepOldKeys = 64,
         .recoveryMembers = 25,
     },
 
@@ -400,7 +202,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
     LLMQParams{
         .type = LLMQType::LLMQ_400_60,
         .name = "llmq_400_60",
-        .useRotation = false,
         .size = 400,
         .minSize = 300,
         .threshold = 240,
@@ -414,7 +215,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .signingActiveQuorumCount = 4, // two days worth of LLMQs
 
         .keepOldConnections = 5,
-        .keepOldKeys = 8,
         .recoveryMembers = 100,
     },
 
@@ -428,7 +228,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
     LLMQParams{
         .type = LLMQType::LLMQ_400_85,
         .name = "llmq_400_85",
-        .useRotation = false,
         .size = 400,
         .minSize = 350,
         .threshold = 340,
@@ -442,7 +241,6 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .signingActiveQuorumCount = 4, // four days worth of LLMQs
 
         .keepOldConnections = 5,
-        .keepOldKeys = 8,
         .recoveryMembers = 100,
     },
 
@@ -451,12 +249,11 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
      * This quorum is deployed on mainnet and requires
      * 80 - 100 participants
      *
-     * Used by Dash Platform
+     * Used by ETXO Platform
      */
     LLMQParams{
         .type = LLMQType::LLMQ_100_67,
         .name = "llmq_100_67",
-        .useRotation = false,
         .size = 100,
         .minSize = 80,
         .threshold = 67,
@@ -470,36 +267,7 @@ static constexpr std::array<LLMQParams, 14> available_llmqs = {
         .signingActiveQuorumCount = 24, // a full day worth of LLMQs
 
         .keepOldConnections = 25,
-        .keepOldKeys = 24 * 30 * 2, // 2 months of quorums
         .recoveryMembers = 50,
-    },
-
-    /**
-     * llmq_25_67
-     * This quorum is deployed on Testnet and requires
-     * 25 participants
-     *
-     * Used by Dash Platform
-     */
-    LLMQParams{
-        .type = LLMQType::LLMQ_25_67,
-        .name = "llmq_25_67",
-        .useRotation = false,
-        .size = 25,
-        .minSize = 22,
-        .threshold = 17,
-
-        .dkgInterval = 24, // one DKG per hour
-        .dkgPhaseBlocks = 2,
-        .dkgMiningWindowStart = 10, // dkgPhaseBlocks * 5 = after finalization
-        .dkgMiningWindowEnd = 18,
-        .dkgBadVotesThreshold = 22,
-
-        .signingActiveQuorumCount = 24, // a full day worth of LLMQs
-
-        .keepOldConnections = 25,
-        .keepOldKeys = 24 * 30 * 2, // 2 months of quorums
-        .recoveryMembers = 12,
     },
 
 }; // available_llmqs

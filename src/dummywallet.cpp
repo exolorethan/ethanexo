@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2020 The Bitcoin Core developers
+// Copyright (c) 2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -10,42 +10,41 @@ class CWallet;
 
 namespace interfaces {
 class Chain;
-class Handler;
-class Wallet;
 }
 
 class DummyWalletInit : public WalletInitInterface {
 public:
 
     bool HasWalletSupport() const override {return false;}
-    void AddWalletOptions(ArgsManager& argsman) const override;
+    void AddWalletOptions() const override;
     bool ParameterInteraction() const override {return true;}
-    void Construct(NodeContext& node) const override {LogPrintf("No wallet support compiled in!\n");}
+    void Construct(InitInterfaces& interfaces) const override {LogPrintf("No wallet support compiled in!\n");}
 
-    // Dash Specific WalletInitInterface InitCoinJoinSettings
+    // ETXO Specific WalletInitInterface InitCoinJoinSettings
     void AutoLockMasternodeCollaterals() const override {}
-    void InitCoinJoinSettings(const CoinJoinWalletManager& cjwalletman) const override {}
+    void InitCoinJoinSettings() const override {}
     bool InitAutoBackup() const override {return true;}
 };
 
-void DummyWalletInit::AddWalletOptions(ArgsManager& argsman) const
+void DummyWalletInit::AddWalletOptions() const
 {
-    argsman.AddHiddenArgs({
+    gArgs.AddHiddenArgs({
         "-avoidpartialspends",
         "-createwalletbackups=<n>",
         "-disablewallet",
         "-instantsendnotify=<cmd>",
         "-keypool=<n>",
-        "-maxapsfee=<n>",
         "-maxtxfee=<amt>",
         "-rescan=<mode>",
         "-salvagewallet",
         "-spendzeroconfchange",
+        "-upgradewallet",
         "-wallet=<path>",
         "-walletbackupsdir=<dir>",
         "-walletbroadcast",
         "-walletdir=<dir>",
         "-walletnotify=<cmd>",
+        "-zapwallettxes=<mode>",
         "-discardfee=<amt>",
         "-fallbackfee=<amt>",
         "-mintxfee=<amt>",
@@ -66,16 +65,37 @@ void DummyWalletInit::AddWalletOptions(ArgsManager& argsman) const
         "-dblogsize=<n>",
         "-flushwallet",
         "-privdb",
-        "-walletrejectlongchains",
-        "-unsafesqlitesync"
+        "-walletrejectlongchains"
     });
 }
 
 const WalletInitInterface& g_wallet_init_interface = DummyWalletInit();
 
+fs::path GetWalletDir()
+{
+    throw std::logic_error("Wallet function called in non-wallet build.");
+}
+
+std::vector<fs::path> ListWalletDir()
+{
+    throw std::logic_error("Wallet function called in non-wallet build.");
+}
+
+std::vector<std::shared_ptr<CWallet>> GetWallets()
+{
+    throw std::logic_error("Wallet function called in non-wallet build.");
+}
+
+std::shared_ptr<CWallet> LoadWallet(interfaces::Chain& chain, const std::string& name, std::string& error, std::string& warning)
+{
+    throw std::logic_error("Wallet function called in non-wallet build.");
+}
+
 namespace interfaces {
 
-std::unique_ptr<Wallet> MakeWallet(const std::shared_ptr<CWallet>& wallet, const CoinJoinWalletManager& cjwalletman)
+class Wallet;
+
+std::unique_ptr<Wallet> MakeWallet(const std::shared_ptr<CWallet>& wallet)
 {
     throw std::logic_error("Wallet function called in non-wallet build.");
 }

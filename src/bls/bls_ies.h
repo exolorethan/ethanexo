@@ -1,9 +1,9 @@
-// Copyright (c) 2018-2024 The Dash Core developers
+// Copyright (c) 2018-2021 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef DASH_CRYPTO_BLS_IES_H
-#define DASH_CRYPTO_BLS_IES_H
+#ifndef ETHANEXO_CRYPTO_BLS_IES_H
+#define ETHANEXO_CRYPTO_BLS_IES_H
 
 #include <bls/bls.h>
 #include <streams.h>
@@ -109,7 +109,7 @@ public:
                 ds.clear();
 
                 ds << _objects[i];
-                blobs[i].assign(UCharCast(ds.data()), UCharCast(ds.data() + ds.size()));
+                blobs[i].assign(ds.begin(), ds.end());
             }
         } catch (const std::exception&) {
             return false;
@@ -122,7 +122,7 @@ public:
     {
         CDataStream ds(SER_NETWORK, nVersion);
         ds << obj;
-        Blob blob(UCharCast(ds.data()), UCharCast(ds.data() + ds.size()));
+        Blob blob(ds.begin(), ds.end());
         return CBLSIESMultiRecipientBlobs::Encrypt(idx, recipient, blob);
     }
 
@@ -148,4 +148,4 @@ public:
     }
 };
 
-#endif // DASH_CRYPTO_BLS_IES_H
+#endif // ETHANEXO_CRYPTO_BLS_IES_H

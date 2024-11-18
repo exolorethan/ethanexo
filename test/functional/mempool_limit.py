@@ -18,7 +18,6 @@ class MempoolLimitTest(BitcoinTestFramework):
             "-maxmempool=5",
             "-spendzeroconfchange=0",
         ]]
-        self.supports_cli = False
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -32,7 +31,7 @@ class MempoolLimitTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getmempoolinfo()['mempoolminfee'], Decimal('0.00001000'))
 
         txids = []
-        utxos = create_confirmed_utxos(self, relayfee, self.nodes[0], 491)
+        utxos = create_confirmed_utxos(relayfee, self.nodes[0], 491)
 
         self.log.info('Create a mempool tx that will be evicted')
         us0 = utxos.pop()

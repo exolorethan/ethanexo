@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,9 +6,9 @@
 #define BITCOIN_QT_WALLETFRAME_H
 
 #include <QFrame>
-#include <QGroupBox>
 #include <QMap>
 
+class BitcoinGUI;
 class ClientModel;
 class SendCoinsRecipient;
 class WalletModel;
@@ -32,12 +32,12 @@ class WalletFrame : public QFrame
     Q_OBJECT
 
 public:
-    explicit WalletFrame(QWidget* parent);
+    explicit WalletFrame(BitcoinGUI* _gui = nullptr);
     ~WalletFrame();
 
     void setClientModel(ClientModel *clientModel);
 
-    bool addWallet(WalletModel* walletModel, WalletView* walletView);
+    void addWallet(WalletModel *walletModel);
     void setCurrentWallet(WalletModel* wallet_model);
     void removeWallet(WalletModel* wallet_model);
     void removeAllWallets();
@@ -46,33 +46,27 @@ public:
 
     void showOutOfSyncWarning(bool fShow);
 
-    QSize sizeHint() const override { return m_size_hint; }
-
 Q_SIGNALS:
-    void message(const QString& title, const QString& message, unsigned int style);
-    void currentWalletSet();
-
-    void createWalletButtonClicked();
+    /** Notify that the user has requested more information about the out-of-sync warning */
+    void requestedSyncWarningInfo();
 
 private:
     QStackedWidget *walletStack;
+    BitcoinGUI *gui;
     ClientModel *clientModel;
     QMap<WalletModel*, WalletView*> mapWalletViews;
-    QGroupBox* no_wallet_group;
     MasternodeList* masternodeListPage;
     GovernanceList* governanceListPage;
 
     bool bOutOfSync;
-
-    const QSize m_size_hint;
 
 public:
     WalletView* currentWalletView() const;
     WalletModel* currentWalletModel() const;
 
 public Q_SLOTS:
-    /** Switch to governance page */
-    void gotoGovernancePage();
+    /** Switch to governance page Hide Governance RaptorHide*/
+    /*void gotoGovernancePage(); */
     /** Switch to overview (home) page */
     void gotoOverviewPage();
     /** Switch to history (transactions) page */
@@ -91,9 +85,6 @@ public Q_SLOTS:
     /** Show Sign/Verify Message dialog and switch to verify message tab */
     void gotoVerifyMessageTab(QString addr = "");
 
-    /** Load Partially Signed Bitcoin Transaction */
-    void gotoLoadPSBT(bool from_clipboard = false);
-
     /** Encrypt the wallet */
     void encryptWallet();
     /** Backup the wallet */
@@ -109,6 +100,8 @@ public Q_SLOTS:
     void usedSendingAddresses();
     /** Show used receiving addresses */
     void usedReceivingAddresses();
+    /** Pass on signal over requested out-of-sync-warning information */
+    void outOfSyncWarningClicked();
 };
 
 #endif // BITCOIN_QT_WALLETFRAME_H

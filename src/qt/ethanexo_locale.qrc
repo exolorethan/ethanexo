@@ -1,0 +1,25 @@
+<!DOCTYPE RCC><RCC version="1.0">
+    <qresource prefix="/translations">
+        <file alias="ar">locale/ethanexo_ar.qm</file>
+        <file alias="bg">locale/ethanexo_bg.qm</file>
+        <file alias="de">locale/ethanexo_de.qm</file>
+        <file alias="en">locale/ethanexo_en.qm</file>
+        <file alias="es">locale/ethanexo_es.qm</file>
+        <file alias="fi">locale/ethanexo_fi.qm</file>
+        <file alias="fr">locale/ethanexo_fr.qm</file>
+        <file alias="it">locale/ethanexo_it.qm</file>
+        <file alias="ja">locale/ethanexo_ja.qm</file>
+        <file alias="ko">locale/ethanexo_ko.qm</file>
+        <file alias="nl">locale/ethanexo_nl.qm</file>
+        <file alias="pl">locale/ethanexo_pl.qm</file>
+        <file alias="pt">locale/ethanexo_pt.qm</file>
+        <file alias="ro">locale/ethanexo_ro.qm</file>
+        <file alias="ru">locale/ethanexo_ru.qm</file>
+        <file alias="sk">locale/ethanexo_sk.qm</file>
+        <file alias="th">locale/ethanexo_th.qm</file>
+        <file alias="tr">locale/ethanexo_tr.qm</file>
+        <file alias="vi">locale/ethanexo_vi.qm</file>
+        <file alias="zh_CN">locale/ethanexo_zh_CN.qm</file>
+        <file alias="zh_TW">locale/ethanexo_zh_TW.qm</file>
+    </qresource>
+</RCC>

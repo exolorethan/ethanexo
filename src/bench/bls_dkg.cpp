@@ -1,17 +1,16 @@
-// Copyright (c) 2018-2023 The Dash Core developers
+// Copyright (c) 2018-2021 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <bench/bench.h>
-#include <bls/bls_worker.h>
 #include <random.h>
-#include <util/irange.h>
+#include <bls/bls_worker.h>
 
 struct Member {
     CBLSId id;
 
     BLSVerificationVectorPtr vvec;
-    std::vector<CBLSSecretKey> skShares;
+    BLSSecretKeyVector skShares;
 };
 
 class DKG
@@ -21,15 +20,15 @@ private:
     std::vector<Member> members;
     std::vector<BLSVerificationVectorPtr> receivedVvecs;
 
-    std::vector<CBLSSecretKey> receivedSkShares;
+    BLSSecretKeyVector receivedSkShares;
     BLSVerificationVectorPtr quorumVvec;
     CBLSWorker blsWorker;
 
     void ReceiveVvecs()
     {
         receivedVvecs.clear();
-        for (const auto& member : members) {
-            receivedVvecs.emplace_back(member.vvec);
+        for (size_t i = 0; i < members.size(); i++) {
+            receivedVvecs.emplace_back(members[i].vvec);
         }
         quorumVvec = blsWorker.BuildQuorumVerificationVector(receivedVvecs);
     }
@@ -37,15 +36,15 @@ private:
     void ReceiveShares(size_t whoAmI)
     {
         receivedSkShares.clear();
-        for (const auto& member : members) {
-            receivedSkShares.emplace_back(member.skShares[whoAmI]);
+        for (size_t i = 0; i < members.size(); i++) {
+            receivedSkShares.emplace_back(members[i].skShares[whoAmI]);
         }
     }
 
     void VerifyContributionShares(size_t whoAmI, const std::set<size_t>& invalidIndexes, bool aggregated)
     {
         auto result = blsWorker.VerifyContributionShares(members[whoAmI].id, receivedVvecs, receivedSkShares, aggregated);
-        for (const size_t i : irange::range(receivedVvecs.size())) {
+        for (size_t i = 0; i < receivedVvecs.size(); i++) {
             if (invalidIndexes.count(i)) {
                 assert(!result[i]);
             } else {
@@ -60,7 +59,7 @@ public:
         members.reserve(quorumSize);
         ids.reserve(quorumSize);
 
-        for (const int i : irange::range(quorumSize)) {
+        for (int i = 0; i < quorumSize; i++) {
             uint256 id;
             WriteLE64(id.begin(), i + 1);
             members.push_back({CBLSId(id), {}, {}});
@@ -68,8 +67,8 @@ public:
         }
 
         blsWorker.Start();
-        for (auto& member : members) {
-            blsWorker.GenerateContributions(quorumSize / 2 + 1, ids, member.vvec, member.skShares);
+        for (int i = 0; i < quorumSize; i++) {
+            blsWorker.GenerateContributions(quorumSize / 2 + 1, ids, members[i].vvec, members[i].skShares);
         }
     }
     ~DKG()
@@ -82,7 +81,7 @@ public:
         ReceiveVvecs();
 
         bench.minEpochIterations(epoch_iters).run([&] {
-            quorumVvec = blsWorker.BuildQuorumVerificationVector(receivedVvecs, false);
+            quorumVvec = blsWorker.BuildQuorumVerificationVector(receivedVvecs, 0, 0, false);
         });
     }
 
@@ -94,7 +93,7 @@ public:
             ReceiveShares(memberIdx);
 
             std::set<size_t> invalidIndexes;
-            for ([[maybe_unused]] const auto _ : irange::range(invalidCount)) {
+            for (int i = 0; i < invalidCount; i++) {
                 int shareIdx = GetRandInt(receivedSkShares.size());
                 receivedSkShares[shareIdx].MakeNewKey();
                 invalidIndexes.emplace(shareIdx);
@@ -113,15 +112,15 @@ static void BLSDKG_GenerateContributions(benchmark::Bench& bench, uint32_t epoch
     blsWorker.Start();
     std::vector<CBLSId> ids;
     std::vector<Member> members;
-    for (const int i : irange::range(quorumSize)) {
+    for (int i = 0; i < quorumSize; i++) {
         uint256 id;
         WriteLE64(id.begin(), i + 1);
         members.push_back({CBLSId(id), {}, {}});
         ids.emplace_back(id);
     }
     bench.minEpochIterations(epoch_iters).run([&blsWorker, &quorumSize, &ids, &members] {
-        for (auto& member : members) {
-            blsWorker.GenerateContributions(quorumSize / 2 + 1, ids, member.vvec, member.skShares);
+        for (int i = 0; i < quorumSize; i++) {
+            blsWorker.GenerateContributions(quorumSize / 2 + 1, ids, members[i].vvec, members[i].skShares);
         }
     });
     blsWorker.Stop();
@@ -130,7 +129,7 @@ static void BLSDKG_GenerateContributions(benchmark::Bench& bench, uint32_t epoch
 #define BENCH_GenerateContributions(name, quorumSize, epoch_iters) \
     static void BLSDKG_GenerateContributions_##name##_##quorumSize(benchmark::Bench& bench) \
     {                                                \
-        BLSDKG_GenerateContributions(bench, epoch_iters, quorumSize); \
+        BLSDKG_InitDKG(bench, epoch_iters, quorumSize); \
     } \
     BENCHMARK(BLSDKG_GenerateContributions_##name##_##quorumSize)
 
@@ -166,8 +165,8 @@ static void BLSDKG_InitDKG(benchmark::Bench& bench, uint32_t epoch_iters, int qu
     } \
     BENCHMARK(BLSDKG_VerifyContributionShares_##name##_##quorumSize)
 
-BENCH_GenerateContributions(simple, 50, 50);
-BENCH_GenerateContributions(simple, 100, 5);
+BENCH_GenerateContributions(simple, 10, 50);
+BENCH_GenerateContributions(simple, 50, 5);
 
 BENCH_InitDKG(simple, 10, 100)
 BENCH_InitDKG(simple, 50, 10)

@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,14 +9,14 @@
 #include <key.h>
 #include <key_io.h>
 #include <script/script.h>
-#include <test/util/setup_common.h>
 #include <util/strencodings.h>
+#include <test/util/setup_common.h>
 
 #include <boost/test/unit_test.hpp>
 
 #include <univalue.h>
 
-UniValue read_json(const std::string& jsondata);
+extern UniValue read_json(const std::string& jsondata);
 
 BOOST_FIXTURE_TEST_SUITE(key_io_tests, BasicTestingSetup)
 
@@ -36,7 +36,7 @@ BOOST_AUTO_TEST_CASE(key_io_valid_parse)
             continue;
         }
         std::string exp_base58string = test[0].get_str();
-        const std::vector<std::byte> exp_payload{ParseHex<std::byte>(test[1].get_str())};
+        std::vector<unsigned char> exp_payload = ParseHex(test[1].get_str());
         const UniValue &metadata = test[2].get_obj();
         bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
         SelectParams(find_value(metadata, "chain").get_str());
@@ -47,7 +47,7 @@ BOOST_AUTO_TEST_CASE(key_io_valid_parse)
             privkey = DecodeSecret(exp_base58string);
             BOOST_CHECK_MESSAGE(privkey.IsValid(), "!IsValid:" + strTest);
             BOOST_CHECK_MESSAGE(privkey.IsCompressed() == isCompressed, "compressed mismatch:" + strTest);
-            BOOST_CHECK_MESSAGE(Span{privkey} == Span{exp_payload}, "key mismatch:" + strTest);
+            BOOST_CHECK_MESSAGE(privkey.size() == exp_payload.size() && std::equal(privkey.begin(), privkey.end(), exp_payload.begin()), "key mismatch:" + strTest);
 
             // Private key must be invalid public key
             destination = DecodeDestination(exp_base58string);

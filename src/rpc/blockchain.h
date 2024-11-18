@@ -1,31 +1,18 @@
-// Copyright (c) 2017-2020 The Bitcoin Core developers
+// Copyright (c) 2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_RPC_BLOCKCHAIN_H
 #define BITCOIN_RPC_BLOCKCHAIN_H
 
-#include <consensus/amount.h>
-#include <core_io.h>
-#include <streams.h>
-#include <sync.h>
-#include <validation.h>
-
-#include <stdint.h>
 #include <vector>
-
-extern RecursiveMutex cs_main;
+#include <stdint.h>
+#include <amount.h>
 
 class CBlock;
 class CBlockIndex;
-class CChainState;
 class CTxMemPool;
 class UniValue;
-struct NodeContext;
-namespace llmq {
-class CChainLocksHandler;
-class CInstantSendManager;
-} // namespace llmq
 
 static constexpr int NUM_GETBLOCKSTATS_PERCENTILES = 5;
 
@@ -38,30 +25,21 @@ static constexpr int NUM_GETBLOCKSTATS_PERCENTILES = 5;
 double GetDifficulty(const CBlockIndex* blockindex);
 
 /** Callback for when block tip changed. */
-void RPCNotifyBlockChange(const CBlockIndex*);
+void RPCNotifyBlockChange(bool ibd, const CBlockIndex *);
 
 /** Block description to JSON */
-UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, llmq::CChainLocksHandler& clhandler, llmq::CInstantSendManager& isman, bool txDetails = false) LOCKS_EXCLUDED(cs_main);
+UniValue blockToJSON(const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, bool txDetails = false);
 
 /** Mempool information to JSON */
-UniValue MempoolInfoToJSON(const CTxMemPool& pool, llmq::CInstantSendManager& isman);
+UniValue MempoolInfoToJSON(const CTxMemPool& pool);
 
 /** Mempool to JSON */
-UniValue MempoolToJSON(const CTxMemPool& pool, llmq::CInstantSendManager* isman, bool verbose = false, bool include_mempool_sequence = false);
+UniValue MempoolToJSON(const CTxMemPool& pool, bool verbose = false);
 
 /** Block header to JSON */
-UniValue blockheaderToJSON(const CBlockIndex* tip, const CBlockIndex* blockindex, llmq::CChainLocksHandler& clhandler) LOCKS_EXCLUDED(cs_main);
+UniValue blockheaderToJSON(const CBlockIndex* tip, const CBlockIndex* blockindex);
 
 /** Used by getblockstats to get feerates at different percentiles by weight  */
 void CalculatePercentilesBySize(CAmount result[NUM_GETBLOCKSTATS_PERCENTILES], std::vector<std::pair<CAmount, int64_t>>& scores, int64_t total_size);
-
-void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex);
-void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex = true, const CTxUndo* txundo = nullptr, const CSpentIndexTxInfo* ptxSpentInfo = nullptr);
-
-/**
- * Helper to create UTXO snapshots given a chainstate and a file handle.
- * @return a UniValue map containing metadata about the snapshot.
- */
-UniValue CreateUTXOSnapshot(NodeContext& node, CChainState& chainstate, CAutoFile& afile);
 
 #endif

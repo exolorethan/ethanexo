@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,23 +6,16 @@
 #define BITCOIN_MASTERNODE_META_H
 
 #include <serialize.h>
-#include <sync.h>
-#include <threadsafety.h>
-#include <uint256.h>
+
+#include <univalue.h>
 
 #include <atomic>
-#include <map>
-#include <memory>
-#include <vector>
+#include <uint256.h>
+#include <sync.h>
 
 class CConnman;
-class UniValue;
-
-template<typename T>
-class CFlatDB;
 
 static constexpr int MASTERNODE_MAX_MIXING_TXES{5};
-static constexpr int MASTERNODE_MAX_FAILED_OUTBOUND_ATTEMPTS{5};
 
 // Holds extra (non-deterministic) information about masternodes
 // This is mostly local information, e.g. about mixing and governance
@@ -31,7 +24,7 @@ class CMasternodeMetaInfo
     friend class CMasternodeMetaMan;
 
 private:
-    mutable RecursiveMutex cs;
+    mutable CCriticalSection cs;
 
     uint256 proTxHash GUARDED_BY(cs);
 
@@ -42,7 +35,6 @@ private:
     // KEEP TRACK OF GOVERNANCE ITEMS EACH MASTERNODE HAS VOTE UPON FOR RECALCULATION
     std::map<uint256, int> mapGovernanceObjectsVotedOn GUARDED_BY(cs);
 
-    std::atomic<int> outboundAttemptCount{0};
     std::atomic<int64_t> lastOutboundAttempt{0};
     std::atomic<int64_t> lastOutboundSuccess{0};
 
@@ -67,7 +59,6 @@ public:
                 obj.nLastDsq,
                 obj.nMixingTxCount,
                 obj.mapGovernanceObjectsVotedOn,
-                obj.outboundAttemptCount,
                 obj.lastOutboundAttempt,
                 obj.lastOutboundSuccess
                 );
@@ -76,11 +67,7 @@ public:
     UniValue ToJson() const;
 
 public:
-    const uint256 GetProTxHash() const
-    {
-        LOCK(cs);
-        return proTxHash;
-    }
+    const uint256& GetProTxHash() const { LOCK(cs); return proTxHash; }
     int64_t GetLastDsq() const { return nLastDsq; }
     int GetMixingTxCount() const { return nMixingTxCount; }
 
@@ -91,21 +78,23 @@ public:
 
     void RemoveGovernanceObject(const uint256& nGovernanceObjectHash);
 
-    bool OutboundFailedTooManyTimes() const { return outboundAttemptCount > MASTERNODE_MAX_FAILED_OUTBOUND_ATTEMPTS; }
-    void SetLastOutboundAttempt(int64_t t) { lastOutboundAttempt = t; ++outboundAttemptCount; }
+    void SetLastOutboundAttempt(int64_t t) { lastOutboundAttempt = t; }
     int64_t GetLastOutboundAttempt() const { return lastOutboundAttempt; }
-    void SetLastOutboundSuccess(int64_t t) { lastOutboundSuccess = t; outboundAttemptCount = 0; }
+    void SetLastOutboundSuccess(int64_t t) { lastOutboundSuccess = t; }
     int64_t GetLastOutboundSuccess() const { return lastOutboundSuccess; }
 };
 using CMasternodeMetaInfoPtr = std::shared_ptr<CMasternodeMetaInfo>;
 
-class MasternodeMetaStore
+class CMasternodeMetaMan
 {
-protected:
+private:
     static const std::string SERIALIZATION_VERSION_STRING;
 
-    mutable RecursiveMutex cs;
+    mutable CCriticalSection cs;
+
     std::map<uint256, CMasternodeMetaInfoPtr> metaInfos GUARDED_BY(cs);
+    std::vector<uint256> vecDirtyGovernanceObjectHashes GUARDED_BY(cs);
+
     // keep track of dsq count to prevent masternodes from gaming coinjoin queue
     std::atomic<int64_t> nDsqCount{0};
 
@@ -115,7 +104,7 @@ public:
     {
         LOCK(cs);
         std::vector<CMasternodeMetaInfo> tmpMetaInfo;
-        for (const auto& p : metaInfos) {
+        for (auto& p : metaInfos) {
             tmpMetaInfo.emplace_back(*p.second);
         }
         s << SERIALIZATION_VERSION_STRING << tmpMetaInfo << nDsqCount;
@@ -124,9 +113,8 @@ public:
     template<typename Stream>
     void Unserialize(Stream &s)
     {
-        Clear();
-
         LOCK(cs);
+        Clear();
         std::string strVersion;
         s >> strVersion;
         if (strVersion != SERIALIZATION_VERSION_STRING) {
@@ -140,35 +128,7 @@ public:
         }
     }
 
-    void Clear()
-    {
-        LOCK(cs);
-
-        metaInfos.clear();
-    }
-
-    std::string ToString() const;
-};
-
-class CMasternodeMetaMan : public MasternodeMetaStore
-{
-private:
-    using db_type = CFlatDB<MasternodeMetaStore>;
-
-private:
-    const std::unique_ptr<db_type> m_db;
-    bool is_valid{false};
-
-    std::vector<uint256> vecDirtyGovernanceObjectHashes GUARDED_BY(cs);
-
 public:
-    explicit CMasternodeMetaMan();
-    ~CMasternodeMetaMan();
-
-    bool LoadCache(bool load_cache);
-
-    bool IsValid() const { return is_valid; }
-
     CMasternodeMetaInfoPtr GetMetaInfo(const uint256& proTxHash, bool fCreate = true);
 
     int64_t GetDsqCount() const { return nDsqCount; }
@@ -181,6 +141,14 @@ public:
     void RemoveGovernanceObject(const uint256& nGovernanceObjectHash);
 
     std::vector<uint256> GetAndClearDirtyGovernanceObjectHashes();
+
+    void Clear();
+    // Needed to avoid errors in flat-database.h
+    void CheckAndRemove() const {};
+
+    std::string ToString() const;
 };
+
+extern CMasternodeMetaMan mmetaman;
 
 #endif // BITCOIN_MASTERNODE_META_H

@@ -1,11 +1,9 @@
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_COINJOIN_COINJOIN_H
 #define BITCOIN_COINJOIN_COINJOIN_H
-
-#include <coinjoin/common.h>
 
 #include <core_io.h>
 #include <netaddress.h>
@@ -13,31 +11,18 @@
 #include <primitives/transaction.h>
 #include <sync.h>
 #include <timedata.h>
+#include <tinyformat.h>
 #include <univalue.h>
-#include <util/translation.h>
-#include <version.h>
+#include <util/ranges.h>
 
-#include <atomic>
-#include <map>
-#include <optional>
 #include <utility>
 
-class CActiveMasternodeManager;
-class CChainState;
+class CCoinJoin;
 class CConnman;
 class CBLSPublicKey;
 class CBlockIndex;
-class ChainstateManager;
-class CMasternodeSync;
-class CTxMemPool;
-class TxValidationState;
-class PeerManager;
 
-namespace llmq {
-class CChainLocksHandler;
-} // namespace llmq
-
-extern RecursiveMutex cs_main;
+extern CCriticalSection cs_main;
 
 // timeouts
 static constexpr int COINJOIN_AUTO_TIMEOUT_MIN = 5;
@@ -116,8 +101,32 @@ public:
 
     SERIALIZE_METHODS(CCoinJoinStatusUpdate, obj)
     {
-        READWRITE(obj.nSessionID, obj.nState, obj.nStatusUpdate, obj.nMessageID);
+        READWRITE(obj.nSessionID, obj.nState);
+        if (s.GetVersion() <= 702015) {
+            READWRITE(obj.nEntriesCount);
+        }
+        READWRITE(obj.nStatusUpdate, obj.nMessageID);
     }
+};
+
+/** Holds a mixing input
+ */
+class CTxDSIn : public CTxIn
+{
+public:
+    // memory only
+    CScript prevPubKey;
+    bool fHasSig{false}; // flag to indicate if signed
+    int nRounds{-10};
+
+    CTxDSIn(const CTxIn& txin, CScript script, int nRounds) :
+        CTxIn(txin),
+        prevPubKey(std::move(script)),
+        nRounds(nRounds)
+    {
+    }
+
+    CTxDSIn() = default;
 };
 
 class CCoinJoinAccept
@@ -154,7 +163,7 @@ public:
     CService addr;
 
     CCoinJoinEntry() :
-        txCollateral(MakeTransactionRef(CMutableTransaction{}))
+        txCollateral(MakeTransactionRef())
     {
     }
 
@@ -182,7 +191,6 @@ class CCoinJoinQueue
 public:
     int nDenom{0};
     COutPoint masternodeOutpoint;
-    uint256 m_protxHash;
     int64_t nTime{0};
     bool fReady{false}; //ready for submit
     std::vector<unsigned char> vchSig;
@@ -191,10 +199,9 @@ public:
 
     CCoinJoinQueue() = default;
 
-    CCoinJoinQueue(int nDenom, const COutPoint& outpoint, const uint256& proTxHash, int64_t nTime, bool fReady) :
+    CCoinJoinQueue(int nDenom, const COutPoint& outpoint, int64_t nTime, bool fReady) :
         nDenom(nDenom),
         masternodeOutpoint(outpoint),
-        m_protxHash(proTxHash),
         nTime(nTime),
         fReady(fReady)
     {
@@ -202,14 +209,13 @@ public:
 
     SERIALIZE_METHODS(CCoinJoinQueue, obj)
     {
-        READWRITE(obj.nDenom, obj.m_protxHash, obj.nTime, obj.fReady);
+        READWRITE(obj.nDenom, obj.masternodeOutpoint, obj.nTime, obj.fReady);
         if (!(s.GetType() & SER_GETHASH)) {
             READWRITE(obj.vchSig);
         }
     }
 
-    [[nodiscard]] uint256 GetHash() const;
-    [[nodiscard]] uint256 GetSignatureHash() const;
+    uint256 GetSignatureHash() const;
     /** Sign this mixing transaction
      *  return true if all conditions are met:
      *     1) we have an active Masternode,
@@ -217,16 +223,20 @@ public:
      *     3) we signed the message successfully, and
      *     4) we verified the message successfully
      */
-    bool Sign(const CActiveMasternodeManager& mn_activeman);
+    bool Sign();
     /// Check if we have a valid Masternode address
-    [[nodiscard]] bool CheckSignature(const CBLSPublicKey& blsPubKey) const;
+    bool CheckSignature(const CBLSPublicKey& blsPubKey) const;
 
-    bool Relay(CConnman& connman, PeerManager& peerman);
+    bool Relay(CConnman& connman);
 
     /// Check if a queue is too old or too far into the future
-    [[nodiscard]] bool IsTimeOutOfBounds(int64_t current_time = GetAdjustedTime()) const;
+    bool IsTimeOutOfBounds(int64_t current_time = GetAdjustedTime()) const;
 
-    [[nodiscard]] std::string ToString() const;
+    std::string ToString() const
+    {
+        return strprintf("nDenom=%d, nTime=%lld, fReady=%s, fTried=%s, masternode=%s",
+            nDenom, nTime, fReady ? "true" : "false", fTried ? "true" : "false", masternodeOutpoint.ToStringShort());
+    }
 
     friend bool operator==(const CCoinJoinQueue& a, const CCoinJoinQueue& b)
     {
@@ -240,32 +250,30 @@ class CCoinJoinBroadcastTx
 {
 private:
     // memory only
-    // when corresponding tx is 0-confirmed or conflicted, nConfirmedHeight is std::nullopt
-    std::optional<int> nConfirmedHeight{std::nullopt};
+    // when corresponding tx is 0-confirmed or conflicted, nConfirmedHeight is -1
+    int nConfirmedHeight{-1};
 
 public:
     CTransactionRef tx;
     COutPoint masternodeOutpoint;
-    uint256 m_protxHash;
     std::vector<unsigned char> vchSig;
     int64_t sigTime{0};
+
     CCoinJoinBroadcastTx() :
-        tx(MakeTransactionRef(CMutableTransaction{}))
+        tx(MakeTransactionRef())
     {
     }
 
-    CCoinJoinBroadcastTx(CTransactionRef _tx, const COutPoint& _outpoint, const uint256& proTxHash, int64_t _sigTime) :
+    CCoinJoinBroadcastTx(CTransactionRef _tx, const COutPoint& _outpoint, int64_t _sigTime) :
         tx(std::move(_tx)),
         masternodeOutpoint(_outpoint),
-        m_protxHash(proTxHash),
         sigTime(_sigTime)
     {
     }
 
     SERIALIZE_METHODS(CCoinJoinBroadcastTx, obj)
     {
-        READWRITE(obj.tx, obj.m_protxHash);
-
+        READWRITE(obj.tx, obj.masternodeOutpoint);
         if (!(s.GetType() & SER_GETHASH)) {
             READWRITE(obj.vchSig);
         }
@@ -285,21 +293,21 @@ public:
         return *this != CCoinJoinBroadcastTx();
     }
 
-    [[nodiscard]] uint256 GetSignatureHash() const;
+    uint256 GetSignatureHash() const;
 
-    bool Sign(const CActiveMasternodeManager& mn_activeman);
-    [[nodiscard]] bool CheckSignature(const CBLSPublicKey& blsPubKey) const;
+    bool Sign();
+    bool CheckSignature(const CBLSPublicKey& blsPubKey) const;
 
-    void SetConfirmedHeight(std::optional<int> nConfirmedHeightIn) { assert(nConfirmedHeightIn == std::nullopt || *nConfirmedHeightIn > 0); nConfirmedHeight = nConfirmedHeightIn; }
-    bool IsExpired(const CBlockIndex* pindex, const llmq::CChainLocksHandler& clhandler) const;
-    [[nodiscard]] bool IsValidStructure() const;
+    void SetConfirmedHeight(int nConfirmedHeightIn) { nConfirmedHeight = nConfirmedHeightIn; }
+    bool IsExpired(const CBlockIndex* pindex) const;
+    bool IsValidStructure() const;
 };
 
 // base class
 class CCoinJoinBaseSession
 {
 protected:
-    mutable Mutex cs_coinjoin;
+    mutable CCriticalSection cs_coinjoin;
 
     std::vector<CCoinJoinEntry> vecEntries GUARDED_BY(cs_coinjoin); // Masternode/clients entries
 
@@ -310,9 +318,9 @@ protected:
 
     CMutableTransaction finalMutableTransaction GUARDED_BY(cs_coinjoin); // the finalized transaction ready for signing
 
-    virtual void SetNull() EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+    void SetNull();
 
-    bool IsValidInOuts(CChainState& active_chainstate, const CTxMemPool& mempool, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet) const;
+    bool IsValidInOuts(const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout, PoolMessage& nMessageIDRet, bool* fConsumeCollateralRet) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 public:
     int nSessionDenom{0}; // Users must submit a denom matching this
@@ -322,87 +330,162 @@ public:
     int GetState() const { return nState; }
     std::string GetStateString() const;
 
-    int GetEntriesCount() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin) { LOCK(cs_coinjoin); return vecEntries.size(); }
-    int GetEntriesCountLocked() const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin) { return vecEntries.size(); }
+    int GetEntriesCount() const { LOCK(cs_coinjoin); return vecEntries.size(); }
 };
 
 // base class
 class CCoinJoinBaseManager
 {
 protected:
-    mutable Mutex cs_vecqueue;
+    mutable CCriticalSection cs_vecqueue;
 
     // The current mixing sessions in progress on the network
     std::vector<CCoinJoinQueue> vecCoinJoinQueue GUARDED_BY(cs_vecqueue);
 
-    void SetNull() EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
-    void CheckQueue() EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
+    void SetNull();
+    void CheckQueue();
 
 public:
     CCoinJoinBaseManager() = default;
 
-    int GetQueueSize() const EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue) { LOCK(cs_vecqueue); return vecCoinJoinQueue.size(); }
-    bool GetQueueItemAndTry(CCoinJoinQueue& dsqRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
-
-    bool HasQueue(const uint256& queueHash) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue)
-    {
-        LOCK(cs_vecqueue);
-        return std::any_of(vecCoinJoinQueue.begin(), vecCoinJoinQueue.end(),
-                           [&queueHash](auto q) { return q.GetHash() == queueHash; });
-    }
-    std::optional<CCoinJoinQueue> GetQueueFromHash(const uint256& queueHash) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue)
-    {
-        LOCK(cs_vecqueue);
-        return ranges::find_if_opt(vecCoinJoinQueue, [&queueHash](const auto& q) { return q.GetHash() == queueHash; });
-    }
+    int GetQueueSize() const { LOCK(cs_vecqueue); return vecCoinJoinQueue.size(); }
+    bool GetQueueItemAndTry(CCoinJoinQueue& dsqRet);
 };
 
-// Various helpers and dstx manager implementation
-namespace CoinJoin
+// helper class
+class CCoinJoin
 {
-    bilingual_str GetMessageByID(PoolMessage nMessageID);
+private:
+    // make constructor, destructor and copying not available
+    CCoinJoin() = default;
+    ~CCoinJoin() = default;
+    CCoinJoin(CCoinJoin const&) = delete;
+    CCoinJoin& operator=(CCoinJoin const&) = delete;
 
-    /// Get the minimum/maximum number of participants for the pool
-    int GetMinPoolParticipants();
-    int GetMaxPoolParticipants();
+    // static members
+    static constexpr std::array<CAmount, 5> vecStandardDenominations{
+            (10 * COIN) + 10000,
+            (1 * COIN) + 1000,
+            (COIN / 10) + 100,
+            (COIN / 100) + 10,
+            (COIN / 1000) + 1,
+    };
 
-    constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
+    static std::map<uint256, CCoinJoinBroadcastTx> mapDSTX;
 
-    /// If the collateral is valid given by a client
-    bool IsCollateralValid(ChainstateManager& chainman, const CTxMemPool& mempool, const CTransaction& txCollateral);
-}
+    static CCriticalSection cs_mapdstx;
 
-class CDSTXManager
-{
-    Mutex cs_mapdstx;
-    std::map<uint256, CCoinJoinBroadcastTx> mapDSTX GUARDED_BY(cs_mapdstx);
+    static void CheckDSTXes(const CBlockIndex* pindex);
 
 public:
-    CDSTXManager() = default;
-    void AddDSTX(const CCoinJoinBroadcastTx& dstx) EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
-    CCoinJoinBroadcastTx GetDSTX(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
+    static constexpr std::array<CAmount, 5> GetStandardDenominations() { return vecStandardDenominations; }
+    static constexpr CAmount GetSmallestDenomination() { return vecStandardDenominations.back(); }
 
-    void UpdatedBlockTip(const CBlockIndex* pindex, const llmq::CChainLocksHandler& clhandler,
-                         const CMasternodeSync& mn_sync)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
-    void NotifyChainLock(const CBlockIndex* pindex, const llmq::CChainLocksHandler& clhandler,
-                         const CMasternodeSync& mn_sync)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
+    static constexpr bool IsDenominatedAmount(CAmount nInputAmount) { return AmountToDenomination(nInputAmount) > 0; }
+    static constexpr bool IsValidDenomination(int nDenom) { return DenominationToAmount(nDenom) > 0; }
 
-    void TransactionAddedToMempool(const CTransactionRef& tx) EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
-    void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
-    void BlockDisconnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex*)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
+    /*
+        Return a bitshifted integer representing a denomination in vecStandardDenominations
+        or 0 if none was found
+    */
+    static constexpr int AmountToDenomination(CAmount nInputAmount)
+    {
+        for (size_t i = 0; i < vecStandardDenominations.size(); ++i) {
+            if (nInputAmount == vecStandardDenominations[i]) {
+                return 1 << i;
+            }
+        }
+        return 0;
+    }
 
-private:
-    void CheckDSTXes(const CBlockIndex* pindex, const llmq::CChainLocksHandler& clhandler)
-        EXCLUSIVE_LOCKS_REQUIRED(!cs_mapdstx);
-    void UpdateDSTXConfirmedHeight(const CTransactionRef& tx, std::optional<int> nHeight)
-        EXCLUSIVE_LOCKS_REQUIRED(cs_mapdstx);
+    /*
+        Returns:
+        - one of standard denominations from vecStandardDenominations based on the provided bitshifted integer
+        - 0 for non-initialized sessions (nDenom = 0)
+        - a value below 0 if an error occurred while converting from one to another
+    */
+    static constexpr CAmount DenominationToAmount(int nDenom)
+    {
+        if (nDenom == 0) {
+            // not initialized
+            return 0;
+        }
+
+        size_t nMaxDenoms = vecStandardDenominations.size();
+
+        if (nDenom >= (1 << nMaxDenoms) || nDenom < 0) {
+            // out of bounds
+            return -1;
+        }
+
+        if ((nDenom & (nDenom - 1)) != 0) {
+            // non-denom
+            return -2;
+        }
+
+        CAmount nDenomAmount{-3};
+
+        for (size_t i = 0; i < nMaxDenoms; ++i) {
+            if (nDenom & (1 << i)) {
+                nDenomAmount = vecStandardDenominations[i];
+                break;
+            }
+        }
+
+        return nDenomAmount;
+    }
+
+    /*
+    Same as DenominationToAmount but returns a string representation
+    */
+    static std::string DenominationToString(int nDenom);
+
+    static std::string GetMessageByID(PoolMessage nMessageID);
+
+    /// Get the minimum/maximum number of participants for the pool
+    static int GetMinPoolParticipants();
+    static int GetMaxPoolParticipants();
+
+    static constexpr CAmount GetMaxPoolAmount() { return COINJOIN_ENTRY_MAX_SIZE * vecStandardDenominations.front(); }
+
+    /// If the collateral is valid given by a client
+    static bool IsCollateralValid(const CTransaction& txCollateral);
+    static constexpr CAmount GetCollateralAmount() { return GetSmallestDenomination() / 10; }
+    static constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
+
+    static constexpr bool IsCollateralAmount(CAmount nInputAmount)
+    {
+        // collateral input can be anything between 1x and "max" (including both)
+        return (nInputAmount >= GetCollateralAmount() && nInputAmount <= GetMaxCollateralAmount());
+    }
+
+    static constexpr int CalculateAmountPriority(CAmount nInputAmount)
+    {
+        if (auto optDenom = ranges::find_if_opt(GetStandardDenominations(), [&nInputAmount](const auto& denom) {
+            return nInputAmount == denom;
+        })) {
+            return (float)COIN / *optDenom * 10000;
+        }
+        if (nInputAmount < COIN) {
+            return 20000;
+        }
+
+        //nondenom return largest first
+        return -1 * (nInputAmount / COIN);
+    }
+
+
+    static void AddDSTX(const CCoinJoinBroadcastTx& dstx);
+    static CCoinJoinBroadcastTx GetDSTX(const uint256& hash);
+
+    static void UpdatedBlockTip(const CBlockIndex* pindex);
+    static void NotifyChainLock(const CBlockIndex* pindex);
+
+    static void UpdateDSTXConfirmedHeight(const CTransactionRef& tx, int nHeight);
+    static void TransactionAddedToMempool(const CTransactionRef& tx);
+    static void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex, const std::vector<CTransactionRef>& vtxConflicted);
+    static void BlockDisconnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex*);
+
 };
-
-bool ATMPIfSaneFee(ChainstateManager& chainman, const CTransactionRef& tx, bool test_accept = false)
-    EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 #endif // BITCOIN_COINJOIN_COINJOIN_H

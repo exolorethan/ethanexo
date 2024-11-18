@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (c) 2018-2020 The Bitcoin Core developers
+# Copyright (c) 2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #
@@ -9,7 +9,7 @@
 # Check includes: Check for duplicate includes. Enforce bracket syntax includes.
 
 export LC_ALL=C
-IGNORE_REGEXP="/(dashbls|immer|leveldb|secp256k1|minisketch|univalue|crc32c|crypto/x11)/"
+IGNORE_REGEXP="/(leveldb|secp256k1|univalue|crc32c)/"
 
 # cd to root folder of git repo for git ls-files to work properly
 cd "$(dirname $0)/../.." || exit 1
@@ -49,24 +49,36 @@ if [[ ${INCLUDED_CPP_FILES} != "" ]]; then
 fi
 
 EXPECTED_BOOST_INCLUDES=(
+    boost/algorithm/string.hpp
+    boost/algorithm/string/classification.hpp
+    boost/algorithm/string/replace.hpp
+    boost/algorithm/string/split.hpp
     boost/date_time/posix_time/posix_time.hpp
+    boost/filesystem.hpp
+    boost/filesystem/fstream.hpp
+    boost/function.hpp
+    boost/lexical_cast.hpp
     boost/multi_index/hashed_index.hpp
-    boost/multi_index/identity.hpp
-    boost/multi_index/indexed_by.hpp
     boost/multi_index/ordered_index.hpp
     boost/multi_index/sequenced_index.hpp
-    boost/multi_index/tag.hpp
     boost/multi_index_container.hpp
+    boost/optional.hpp
     boost/pool/pool_alloc.hpp
-    boost/process.hpp
+    boost/preprocessor/cat.hpp
+    boost/preprocessor/stringize.hpp
     boost/signals2/connection.hpp
-    boost/signals2/optional_last_value.hpp
+    boost/signals2/last_value.hpp
     boost/signals2/signal.hpp
-    boost/test/included/unit_test.hpp
     boost/test/unit_test.hpp
+    boost/thread.hpp
+    boost/thread/condition_variable.hpp
+    boost/thread/thread.hpp
+    boost/variant.hpp
+    boost/variant/apply_visitor.hpp
+    boost/variant/static_visitor.hpp
 )
 
-for BOOST_INCLUDE in $(git grep '^#include <boost/' -- "*.cpp" "*.h" | grep -vE "src/(immer)/" | cut -f2 -d: | cut -f2 -d'<' | cut -f1 -d'>' | sort -u); do
+for BOOST_INCLUDE in $(git grep '^#include <boost/' -- "*.cpp" "*.h" | cut -f2 -d: | cut -f2 -d'<' | cut -f1 -d'>' | sort -u); do
     IS_EXPECTED_INCLUDE=0
     for EXPECTED_BOOST_INCLUDE in "${EXPECTED_BOOST_INCLUDES[@]}"; do
         if [[ "${BOOST_INCLUDE}" == "${EXPECTED_BOOST_INCLUDE}" ]]; then

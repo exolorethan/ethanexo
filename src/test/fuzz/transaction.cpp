@@ -1,31 +1,22 @@
-// Copyright (c) 2019-2020 The Bitcoin Core developers
+// Copyright (c) 2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <chainparams.h>
 #include <coins.h>
-#include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <core_memusage.h>
 #include <policy/policy.h>
-#include <policy/settings.h>
 #include <primitives/transaction.h>
 #include <streams.h>
 #include <test/fuzz/fuzz.h>
-#include <univalue.h>
 #include <validation.h>
 #include <version.h>
 
 #include <cassert>
 
-void initialize_transaction()
-{
-    SelectParams(CBaseChainParams::REGTEST);
-}
-
-FUZZ_TARGET_INIT(transaction, initialize_transaction)
+void test_one_input(const std::vector<uint8_t>& buffer)
 {
     CDataStream ds(buffer, SER_NETWORK, INIT_PROTO_VERSION);
     try {
@@ -41,7 +32,7 @@ FUZZ_TARGET_INIT(transaction, initialize_transaction)
             return CTransaction(deserialize, ds);
         } catch (const std::ios_base::failure&) {
             valid_tx = false;
-            return CTransaction{CMutableTransaction{}};
+            return CTransaction();
         }
     }();
     bool valid_mutable_tx = true;
@@ -60,10 +51,12 @@ FUZZ_TARGET_INIT(transaction, initialize_transaction)
         return;
     }
 
-    {
-        TxValidationState state_with_dupe_check;
-        const bool res{CheckTransaction(tx, state_with_dupe_check)};
-        Assert(res == state_with_dupe_check.IsValid());
+    CValidationState state_with_dupe_check;
+    const bool valid_with_dupe_check = CheckTransaction(tx, state_with_dupe_check);
+    CValidationState state_without_dupe_check;
+    const bool valid_without_dupe_check = CheckTransaction(tx, state_without_dupe_check);
+    if (valid_with_dupe_check) {
+        assert(valid_without_dupe_check);
     }
 
     std::string reason;
@@ -88,12 +81,4 @@ FUZZ_TARGET_INIT(transaction, initialize_transaction)
     (void)IsFinalTx(tx, /* nBlockHeight= */ 1024, /* nBlockTime= */ 1024);
     (void)IsStandardTx(tx, reason);
     (void)RecursiveDynamicUsage(tx);
-
-    CCoinsView coins_view;
-    const CCoinsViewCache coins_view_cache(&coins_view);
-    (void)AreInputsStandard(tx, coins_view_cache);
-
-    UniValue u(UniValue::VOBJ);
-    TxToUniv(tx, /* hashBlock */ uint256::ZERO, /* include_addresses */ true, u);
-    TxToUniv(tx, /* hashBlock */ uint256::ONE, /* include_addresses */ false, u);
 }

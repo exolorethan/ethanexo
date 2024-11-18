@@ -1,12 +1,12 @@
 Sample configuration files for:
 ```
-systemd: dashd.service
-Upstart: dashd.conf
-OpenRC:  dashd.openrc
-         dashd.openrcconf
-CentOS:  dashd.init
-macOS:   org.dash.dashd.plist
+SystemD: ethanexod.service
+Upstart: ethanexod.conf
+OpenRC:  ethanexod.openrc
+         ethanexod.openrcconf
+CentOS:  ethanexod.init
+macOS:   org.ethanexo.ethanexod.plist
 ```
 have been made available to assist packagers in creating node packages here.
 
-See [doc/init.md](../../doc/init.md) for more information.
+See doc/init.md for more information.

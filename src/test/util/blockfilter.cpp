@@ -5,15 +5,12 @@
 #include <test/util/blockfilter.h>
 
 #include <chainparams.h>
-#include <node/blockstorage.h>
 #include <validation.h>
 
 bool ComputeFilter(BlockFilterType filter_type, const CBlockIndex* block_index, BlockFilter& filter)
 {
-    LOCK(::cs_main);
-
     CBlock block;
-    if (!ReadBlockFromDisk(block, block_index->GetBlockPos(), Params().GetConsensus())) {
+    if (!ReadBlockFromDisk(block, block_index->GetBlockPos(), block_index->nHeight, Params().GetConsensus())) {
         return false;
     }
 

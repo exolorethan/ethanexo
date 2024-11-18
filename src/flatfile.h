@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -13,15 +13,15 @@
 
 struct FlatFilePos
 {
-    int nFile{-1};
-    unsigned int nPos{0};
+    int nFile;
+    unsigned int nPos;
 
     SERIALIZE_METHODS(FlatFilePos, obj)
     {
-        READWRITE(VARINT_MODE(obj.nFile, VarIntMode::NONNEGATIVE_SIGNED), VARINT(obj.nPos));
+        READWRITE(VARINT(obj.nFile, VarIntMode::NONNEGATIVE_SIGNED), VARINT(obj.nPos));
     }
 
-    FlatFilePos() {}
+    FlatFilePos() : nFile(-1), nPos(0) {}
 
     FlatFilePos(int nFileIn, unsigned int nPosIn) :
         nFile(nFileIn),
@@ -36,6 +36,7 @@ struct FlatFilePos
         return !(a == b);
     }
 
+    void SetNull() { nFile = -1; nPos = 0; }
     bool IsNull() const { return (nFile == -1); }
 
     std::string ToString() const;

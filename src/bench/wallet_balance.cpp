@@ -1,13 +1,10 @@
-// Copyright (c) 2012-2020 The Bitcoin Core developers
+// Copyright (c) 2012-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <bench/bench.h>
 #include <interfaces/chain.h>
-#include <node/context.h>
-#include <test/util/mining.h>
-#include <test/util/setup_common.h>
-#include <test/util/wallet.h>
+#include <test/util.h>
 #include <validationinterface.h>
 #include <wallet/wallet.h>
 
@@ -15,22 +12,23 @@
 
 static void WalletBalance(benchmark::Bench& bench, const bool set_dirty, const bool add_watchonly, const bool add_mine, const uint32_t epoch_iters)
 {
-    const auto test_setup = MakeNoLogFileContext<const TestingSetup>();
     const auto& ADDRESS_WATCHONLY = ADDRESS_B58T_UNSPENDABLE;
 
-    CWallet wallet{test_setup->m_node.chain.get(), test_setup->m_node.coinjoin_loader.get(), "", CreateMockWalletDatabase()};
+    std::unique_ptr<interfaces::Chain> chain = interfaces::MakeChain();
+    CWallet wallet{*chain.get(), WalletLocation(), WalletDatabase::CreateMock()};
     {
-        wallet.SetupLegacyScriptPubKeyMan();
-        if (wallet.LoadWallet() != DBErrors::LOAD_OK) assert(false);
+        bool first_run;
+        if (wallet.LoadWallet(first_run) != DBErrors::LOAD_OK) assert(false);
+        wallet.handleNotifications();
     }
-    auto handler = test_setup->m_node.chain->handleNotifications({&wallet, [](CWallet*) {}});
+
 
     const std::optional<std::string> address_mine{add_mine ? std::optional<std::string>{getnewaddress(wallet)} : std::nullopt};
     if (add_watchonly) importaddress(wallet, ADDRESS_WATCHONLY);
 
     for (int i = 0; i < 100; ++i) {
-        generatetoaddress(test_setup->m_node, address_mine.value_or(ADDRESS_WATCHONLY));
-        generatetoaddress(test_setup->m_node, ADDRESS_WATCHONLY);
+        generatetoaddress(address_mine.value_or(ADDRESS_WATCHONLY));
+        generatetoaddress(ADDRESS_WATCHONLY);
     }
     SyncWithValidationInterfaceQueue();
 

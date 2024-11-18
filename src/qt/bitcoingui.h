@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,17 +6,14 @@
 #define BITCOIN_QT_BITCOINGUI_H
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
-#include <qt/optionsdialog.h>
-
-#include <consensus/amount.h>
+#include <amount.h>
 
 #include <QLabel>
 #include <QMainWindow>
 #include <QMap>
-#include <QMenu>
 #include <QPoint>
 #include <QPushButton>
 #include <QSystemTrayIcon>
@@ -39,19 +36,17 @@ class WalletFrame;
 class WalletModel;
 class HelpMessageDialog;
 class ModalOverlay;
-enum class SynchronizationState;
 
 namespace interfaces {
 class Handler;
 class Node;
-struct BlockAndHeaderTipInfo;
 }
 
 QT_BEGIN_NAMESPACE
 class QAction;
 class QButtonGroup;
 class QComboBox;
-class QDateTime;
+class QMenu;
 class QProgressBar;
 class QProgressDialog;
 class QToolButton;
@@ -79,10 +74,9 @@ public:
     /** Set the client model.
         The client model represents the part of the core that communicates with the P2P network, and is wallet-agnostic.
     */
-    void setClientModel(ClientModel *clientModel = nullptr, interfaces::BlockAndHeaderTipInfo* tip_info = nullptr);
+    void setClientModel(ClientModel *clientModel);
 #ifdef ENABLE_WALLET
     void setWalletController(WalletController* wallet_controller);
-    WalletController* getWalletController();
 #endif
 
 #ifdef ENABLE_WALLET
@@ -104,8 +98,6 @@ public:
     /** Disconnect core signals from GUI client */
     void unsubscribeFromCoreSignals();
 
-    bool isPrivacyModeActivated() const;
-
 protected:
     void changeEvent(QEvent *e) override;
     void closeEvent(QCloseEvent *event) override;
@@ -125,8 +117,8 @@ private:
     UnitDisplayStatusBarControl* unitDisplayControl = nullptr;
     QLabel* labelWalletEncryptionIcon = nullptr;
     QLabel* labelWalletHDStatusIcon = nullptr;
+    QLabel* labelProxyIcon = nullptr;
     GUIUtil::ClickableLabel* labelConnectionsIcon = nullptr;
-    GUIUtil::ClickableLabel* labelProxyIcon = nullptr;
     GUIUtil::ClickableLabel* labelBlocksIcon = nullptr;
     QLabel* progressBarLabel = nullptr;
     GUIUtil::ClickableProgressBar* progressBar = nullptr;
@@ -149,8 +141,6 @@ private:
     QAction* usedReceivingAddressesAction = nullptr;
     QAction* signMessageAction = nullptr;
     QAction* verifyMessageAction = nullptr;
-    QAction* m_load_psbt_action = nullptr;
-    QAction* m_load_psbt_clipboard_action = nullptr;
     QAction* aboutAction = nullptr;
     QAction* receiveCoinsMenuAction = nullptr;
     QAction* optionsAction = nullptr;
@@ -170,14 +160,11 @@ private:
     QAction* showBackupsAction = nullptr;
     QAction* openAction = nullptr;
     QAction* showHelpMessageAction = nullptr;
-    QAction* m_create_wallet_action{nullptr};
     QAction* m_open_wallet_action{nullptr};
     QMenu* m_open_wallet_menu{nullptr};
     QAction* m_close_wallet_action{nullptr};
     QAction* showCoinJoinHelpAction = nullptr;
-    QAction* m_close_all_wallets_action{nullptr};
     QAction* m_wallet_selector_action = nullptr;
-    QAction* m_mask_values_action{nullptr};
 
     QComboBox* m_wallet_selector = nullptr;
 
@@ -189,8 +176,6 @@ private:
     HelpMessageDialog* helpMessageDialog = nullptr;
     ModalOverlay* modalOverlay = nullptr;
     QButtonGroup* tabGroup = nullptr;
-
-    QMenu* m_network_context_menu = new QMenu(this);
 
 #ifdef Q_OS_MAC
     CAppNapInhibitor* m_app_nap_inhibitor = nullptr;
@@ -250,9 +235,6 @@ private:
 
     void updateProgressBarVisibility();
 
-    /** Open the OptionsDialog on the specified tab index */
-    void openOptionsDialogWithTab(OptionsDialog::Tab tab);
-
 Q_SIGNALS:
     /** Signal raised when a URI was entered or dragged to the GUI */
     void receivedURI(const QString &uri);
@@ -260,29 +242,27 @@ Q_SIGNALS:
     void consoleShown(RPCConsole* console);
     /** Restart handling */
     void requestedRestart(QStringList args);
-    void setPrivacy(bool privacy);
 
 public Q_SLOTS:
     /** Set number of connections shown in the UI */
     void setNumConnections(int count);
     /** Set network state shown in the UI */
-    void setNetworkActive(bool network_active);
+    void setNetworkActive(bool networkActive);
     /** Get restart command-line parameters and request restart */
     void handleRestart(QStringList args);
     /** Set number of blocks and last block date shown in the UI */
-    void setNumBlocks(int count, const QDateTime& blockDate, const QString& blockHash, double nVerificationProgress, bool headers, SynchronizationState sync_state);
+    void setNumBlocks(int count, const QDateTime& blockDate, const QString& blockHash, double nVerificationProgress, bool headers);
     /** Set additional data sync status shown in the UI */
     void setAdditionalDataSyncProgress(double nSyncProgress);
 
     /** Notify the user of an event from the core network or transaction handling code.
-       @param[in] title             the message box / notification title
-       @param[in] message           the displayed text
-       @param[in] style             modality and style definitions (icon and used buttons - buttons only for message boxes)
-                                    @see CClientUIInterface::MessageBoxFlags
-       @param[in] ret               pointer to a bool that will be modified to whether Ok was clicked (modal only)
-       @param[in] detailed_message  the text to be displayed in the details area
+       @param[in] title     the message box / notification title
+       @param[in] message   the displayed text
+       @param[in] style     modality and style definitions (icon and used buttons - buttons only for message boxes)
+                            @see CClientUIInterface::MessageBoxFlags
+       @param[in] ret       pointer to a bool that will be modified to whether Ok was clicked (modal only)
     */
-    void message(const QString& title, QString message, unsigned int style, bool* ret = nullptr, const QString& detailed_message = QString());
+    void message(const QString& title, QString message, unsigned int style, bool* ret = nullptr);
 
 #ifdef ENABLE_WALLET
     void setCurrentWallet(WalletModel* wallet_model);
@@ -319,8 +299,8 @@ private:
 
 public Q_SLOTS:
 #ifdef ENABLE_WALLET
-    /** Switch to governance page */
-    void gotoGovernancePage();
+    /** Switch to governance page Hide Governance RaptorHide*/ 
+    /*void gotoGovernancePage();*/
     /** Switch to overview (home) page */
     void gotoOverviewPage();
     /** Switch to history (transactions) page */
@@ -338,8 +318,6 @@ public Q_SLOTS:
     void gotoSignMessageTab(QString addr = "");
     /** Show Sign/Verify Message dialog and switch to verify message tab */
     void gotoVerifyMessageTab(QString addr = "");
-    /** Load Partially Signed Dash Transaction from file or clipboard */
-    void gotoLoadPSBT(bool from_clipboard = false);
 
     /** Show open dialog */
     void openClicked();
@@ -349,6 +327,7 @@ public Q_SLOTS:
 #endif // ENABLE_WALLET
     /** Show configuration dialog */
     void optionsClicked();
+
     /** Show about dialog */
     void aboutClicked();
     /** Show debug window */
@@ -361,7 +340,7 @@ public Q_SLOTS:
     void showPeers();
     void showRepair();
 
-    /** Open external (default) editor with dash.conf */
+    /** Open external (default) editor with ethanexo.conf */
     void showConfEditor();
     /** Show folder with wallet backups in default file browser */
     void showBackups();
@@ -381,7 +360,7 @@ public Q_SLOTS:
     /** Show window if hidden, unminimize when minimized, rise when obscured or show if hidden and fToggleHidden is true */
     void showNormalIfMinimized() { showNormalIfMinimized(false); }
     void showNormalIfMinimized(bool fToggleHidden);
-    /** Simply calls showNormalIfMinimized(true) */
+    /** Simply calls showNormalIfMinimized(true) for use in SLOT() macro */
     void toggleHidden();
 
     /** called by a timer to check if ShutdownRequested() has been set **/
@@ -389,6 +368,12 @@ public Q_SLOTS:
 
     /** Show progress dialog e.g. for verifychain */
     void showProgress(const QString &title, int nProgress);
+
+    /** When hideTrayIcon setting is changed in OptionsModel hide or show the icon accordingly. */
+    void setTrayIconVisible(bool);
+
+    /** Toggle networking */
+    void toggleNetworkActive();
 
     void showModalOverlay();
 

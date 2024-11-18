@@ -1,17 +1,17 @@
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/amount.h>
-#include <pubkey.h>
 #include <script/interpreter.h>
 #include <streams.h>
-#include <test/util/script.h>
 #include <version.h>
 
 #include <test/fuzz/fuzz.h>
 
-FUZZ_TARGET(script_flags)
+/** Flags that are not forbidden by an assert */
+static bool IsValidFlagCombination(unsigned flags);
+
+void test_one_input(const std::vector<uint8_t>& buffer)
 {
     CDataStream ds(buffer, SER_NETWORK, INIT_PROTO_VERSION);
     try {
@@ -24,7 +24,6 @@ FUZZ_TARGET(script_flags)
 
     try {
         const CTransaction tx(deserialize, ds);
-        const PrecomputedTransactionData txdata(tx);
 
         unsigned int verify_flags;
         ds >> verify_flags;
@@ -34,6 +33,7 @@ FUZZ_TARGET(script_flags)
         unsigned int fuzzed_flags;
         ds >> fuzzed_flags;
 
+        std::vector<CTxOut> spent_outputs;
         for (unsigned i = 0; i < tx.vin.size(); ++i) {
             CTxOut prevout;
             ds >> prevout;
@@ -41,7 +41,13 @@ FUZZ_TARGET(script_flags)
                 // prevouts should be consensus-valid
                 prevout.nValue = 1;
             }
+            spent_outputs.push_back(prevout);
+        }
+        PrecomputedTransactionData txdata;
+        txdata.Init(tx, std::move(spent_outputs));
 
+        for (unsigned i = 0; i < tx.vin.size(); ++i) {
+            const CTxOut& prevout = txdata.m_spent_outputs.at(i);
             const TransactionSignatureChecker checker{&tx, i, prevout.nValue, txdata};
 
             ScriptError serror;
@@ -65,4 +71,10 @@ FUZZ_TARGET(script_flags)
     } catch (const std::ios_base::failure&) {
         return;
     }
+}
+
+static bool IsValidFlagCombination(unsigned flags)
+{
+    if (flags & SCRIPT_VERIFY_CLEANSTACK && ~flags & SCRIPT_VERIFY_P2SH) return false;
+    return true;
 }

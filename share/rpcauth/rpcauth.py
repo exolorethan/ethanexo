@@ -5,6 +5,7 @@
 
 from argparse import ArgumentParser
 from base64 import urlsafe_b64encode
+from binascii import hexlify
 from getpass import getpass
 from os import urandom
 
@@ -12,7 +13,7 @@ import hmac
 
 def generate_salt(size):
     """Create size byte hex salt"""
-    return urandom(size).hex()
+    return hexlify(urandom(size)).decode()
 
 def generate_password():
     """Create 32 byte b64 password"""
@@ -37,7 +38,7 @@ def main():
     salt = generate_salt(16)
     password_hmac = password_to_hmac(salt, args.password)
 
-    print('String to be appended to dash.conf:')
+    print('String to be appended to ethanexo.conf:')
     print('rpcauth={0}:{1}${2}'.format(args.username, salt, password_hmac))
     print('Your password:\n{0}'.format(args.password))
 

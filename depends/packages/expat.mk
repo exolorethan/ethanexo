@@ -1,27 +1,15 @@
 package=expat
-$(package)_version=2.4.8
-$(package)_download_path=https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$($(package)_version))/
-$(package)_file_name=$(package)-$($(package)_version).tar.xz
-$(package)_sha256_hash=f79b8f904b749e3e0d20afeadecf8249c55b2e32d4ebb089ae378df479dcaf25
-$(package)_build_subdir=build
-$(package)_patches += cmake_minimum.patch
+$(package)_version=2.2.7
+$(package)_download_path=https://github.com/libexpat/libexpat/releases/download/R_2_2_7/
+$(package)_file_name=$(package)-$($(package)_version).tar.bz2
+$(package)_sha256_hash=cbc9102f4a31a8dafd42d642e9a3aa31e79a0aedaa1f6efd2795ebc83174ec18
 
-# -D_DEFAULT_SOURCE defines __USE_MISC, which exposes additional
-# definitions in endian.h, which are required for a working
-# endianess check in configure when building with -flto.
 define $(package)_set_vars
-  $(package)_config_opts := -DCMAKE_BUILD_TYPE=None -DEXPAT_BUILD_TOOLS=OFF
-  $(package)_config_opts += -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TESTS=OFF
-  $(package)_config_opts += -DBUILD_SHARED_LIBS=OFF
-  $(package)_cppflags += -D_DEFAULT_SOURCE
-endef
-
-define $(package)_preprocess_cmds
-  patch -p1 < $($(package)_patch_dir)/cmake_minimum.patch
+$(package)_config_opts=--disable-static --without-docbook --without-tests --without-examples
 endef
 
 define $(package)_config_cmds
-  $($(package)_cmake) -S .. -B .
+  $($(package)_autoconf)
 endef
 
 define $(package)_build_cmds
@@ -30,8 +18,4 @@ endef
 
 define $(package)_stage_cmds
   $(MAKE) DESTDIR=$($(package)_staging_dir) install
-endef
-
-define $(package)_postprocess_cmds
-  rm -rf share lib/cmake
 endef

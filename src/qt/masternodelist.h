@@ -1,7 +1,3 @@
-// Copyright (c) 2016-2023 The Dash Core developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
 #ifndef BITCOIN_QT_MASTERNODELIST_H
 #define BITCOIN_QT_MASTERNODELIST_H
 
@@ -42,7 +38,6 @@ public:
 
     enum {
         COLUMN_SERVICE,
-        COLUMN_TYPE,
         COLUMN_STATUS,
         COLUMN_POSE,
         COLUMN_REGISTERED,
@@ -71,7 +66,7 @@ private:
     WalletModel* walletModel{nullptr};
 
     // Protects tableWidgetMasternodesDIP3
-    RecursiveMutex cs_dip3list;
+    CCriticalSection cs_dip3list;
 
     QString strCurrentFilterDIP3;
 

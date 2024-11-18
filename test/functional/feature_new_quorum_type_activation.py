@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020-2024 The Dash Core developers
+# Copyright (c) 2020-2021 The Dash Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, get_bip9_details
+from test_framework.util import assert_equal, get_bip9_status
 
 '''
 feature_new_quorum_type_activation.py
@@ -17,25 +17,24 @@ class NewQuorumTypeActivationTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
-        self.extra_args = [["-vbparams=testdummy:0:999999999999:0:10:8:6:5:0"]]
+        self.extra_args = [["-vbparams=dip0020:0:999999999999:10:8:6:5"]]
 
     def run_test(self):
-        self.log.info(get_bip9_details(self.nodes[0], 'testdummy'))
-        assert_equal(get_bip9_details(self.nodes[0], 'testdummy')['status'], 'defined')
-        self.generate(self.nodes[0], 9, sync_fun=self.no_op)
-        assert_equal(get_bip9_details(self.nodes[0], 'testdummy')['status'], 'started')
+        assert_equal(get_bip9_status(self.nodes[0], 'dip0020')['status'], 'defined')
+        self.nodes[0].generate(9)
+        assert_equal(get_bip9_status(self.nodes[0], 'dip0020')['status'], 'started')
         ql = self.nodes[0].quorum("list")
-        assert_equal(len(ql), 3)
+        assert_equal(len(ql), 1)
         assert "llmq_test_v17" not in ql
-        self.generate(self.nodes[0], 10, sync_fun=self.no_op)
-        assert_equal(get_bip9_details(self.nodes[0], 'testdummy')['status'], 'locked_in')
+        self.nodes[0].generate(10)
+        assert_equal(get_bip9_status(self.nodes[0], 'dip0020')['status'], 'locked_in')
         ql = self.nodes[0].quorum("list")
-        assert_equal(len(ql), 3)
+        assert_equal(len(ql), 1)
         assert "llmq_test_v17" not in ql
-        self.generate(self.nodes[0], 10, sync_fun=self.no_op)
-        assert_equal(get_bip9_details(self.nodes[0], 'testdummy')['status'], 'active')
+        self.nodes[0].generate(10)
+        assert_equal(get_bip9_status(self.nodes[0], 'dip0020')['status'], 'active')
         ql = self.nodes[0].quorum("list")
-        assert_equal(len(ql), 4)
+        assert_equal(len(ql), 2)
         assert "llmq_test_v17" in ql
 
 

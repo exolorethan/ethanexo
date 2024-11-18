@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,26 +7,21 @@
 #include <qt/bitcoinunits.h>
 #include <qt/guiutil.h>
 #include <qt/optionsmodel.h>
-#include <qt/walletmodel.h>
 
 #include <clientversion.h>
-#include <interfaces/wallet.h>
-#include <key_io.h>
 #include <streams.h>
-#include <util/string.h>
 
-#include <utility>
+#include <algorithm>
 
-#include <QLatin1Char>
-#include <QLatin1String>
 
 RecentRequestsTableModel::RecentRequestsTableModel(WalletModel *parent) :
     QAbstractTableModel(parent), walletModel(parent)
 {
     // Load entries from wallet
-    for (const std::string& request : parent->wallet().getAddressReceiveRequests()) {
+    std::vector<std::string> vReceiveRequests;
+    parent->loadReceiveRequests(vReceiveRequests);
+    for (const std::string& request : vReceiveRequests)
         addNewRequest(request);
-    }
 
     /* These columns must match the indices in the ColumnIndex enumeration */
     columns << tr("Date") << tr("Label") << tr("Message") << getAmountTitle();
@@ -89,7 +84,7 @@ QVariant RecentRequestsTableModel::data(const QModelIndex &index, int role) cons
             if (rec->recipient.amount == 0 && role == Qt::DisplayRole)
                 return tr("(no amount requested)");
             else if (role == Qt::EditRole)
-                return BitcoinUnits::format(walletModel->getOptionsModel()->getDisplayUnit(), rec->recipient.amount, false, BitcoinUnits::SeparatorStyle::NEVER);
+                return BitcoinUnits::format(walletModel->getOptionsModel()->getDisplayUnit(), rec->recipient.amount, false, BitcoinUnits::separatorNever);
             else
                 return BitcoinUnits::format(walletModel->getOptionsModel()->getDisplayUnit(), rec->recipient.amount);
         }
@@ -129,11 +124,7 @@ void RecentRequestsTableModel::updateAmountColumnTitle()
 /** Gets title for amount column including current display unit if optionsModel reference available. */
 QString RecentRequestsTableModel::getAmountTitle()
 {
-    if (!walletModel->getOptionsModel()) return {};
-    return tr("Requested") +
-           QLatin1String(" (") +
-           BitcoinUnits::name(this->walletModel->getOptionsModel()->getDisplayUnit()) +
-           QLatin1Char(')');
+    return (this->walletModel->getOptionsModel() != nullptr) ? tr("Requested") + " ("+BitcoinUnits::name(this->walletModel->getOptionsModel()->getDisplayUnit()) + ")" : "";
 }
 
 QModelIndex RecentRequestsTableModel::index(int row, int column, const QModelIndex &parent) const
@@ -152,7 +143,7 @@ bool RecentRequestsTableModel::removeRows(int row, int count, const QModelIndex 
         for (int i = 0; i < count; ++i)
         {
             const RecentRequestEntry* rec = &list[row+i];
-            if (!walletModel->wallet().setAddressReceiveRequest(DecodeDestination(rec->recipient.address.toStdString()), ToString(rec->id), ""))
+            if (!walletModel->saveReceiveRequest(rec->recipient.address.toStdString(), rec->id, ""))
                 return false;
         }
 
@@ -181,7 +172,7 @@ void RecentRequestsTableModel::addNewRequest(const SendCoinsRecipient &recipient
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     ss << newEntry;
 
-    if (!walletModel->wallet().setAddressReceiveRequest(DecodeDestination(recipient.address.toStdString()), ToString(newEntry.id), ss.str()))
+    if (!walletModel->saveReceiveRequest(recipient.address.toStdString(), newEntry.id, ss.str()))
         return;
 
     addNewRequest(newEntry);
@@ -190,7 +181,7 @@ void RecentRequestsTableModel::addNewRequest(const SendCoinsRecipient &recipient
 // called from ctor when loading from wallet
 void RecentRequestsTableModel::addNewRequest(const std::string &recipient)
 {
-    std::vector<uint8_t> data(recipient.begin(), recipient.end());
+    std::vector<char> data(recipient.begin(), recipient.end());
     CDataStream ss(data, SER_DISK, CLIENT_VERSION);
 
     RecentRequestEntry entry;
@@ -224,17 +215,17 @@ void RecentRequestsTableModel::updateDisplayUnit()
     updateAmountColumnTitle();
 }
 
-bool RecentRequestEntryLessThan::operator()(const RecentRequestEntry& left, const RecentRequestEntry& right) const
+bool RecentRequestEntryLessThan::operator()(RecentRequestEntry &left, RecentRequestEntry &right) const
 {
-    const RecentRequestEntry* pLeft = &left;
-    const RecentRequestEntry* pRight = &right;
+    RecentRequestEntry *pLeft = &left;
+    RecentRequestEntry *pRight = &right;
     if (order == Qt::DescendingOrder)
         std::swap(pLeft, pRight);
 
     switch(column)
     {
     case RecentRequestsTableModel::Date:
-        return pLeft->date.toSecsSinceEpoch() < pRight->date.toSecsSinceEpoch();
+        return pLeft->date.toTime_t() < pRight->date.toTime_t();
     case RecentRequestsTableModel::Label:
         return pLeft->recipient.label < pRight->recipient.label;
     case RecentRequestsTableModel::Message:

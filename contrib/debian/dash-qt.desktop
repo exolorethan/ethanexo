@@ -1,14 +1,14 @@
 [Desktop Entry]
 Version=1.0
-Name=Dash Core
-Comment=Dash P2P Cryptocurrency
-Comment[de]=Verbinde mit dem Dash peer-to-peer Netzwerk
-Comment[fr]=Dash, monnaie virtuelle cryptographique pair à pair
-Comment[tr]=Dash, eşten eşe kriptografik sanal para birimi
-Exec=dash-qt %u
+Name=Ethanexo Core
+Comment=Ethanexo P2P Cryptocurrency
+Comment[de]=Verbinde mit dem Ethanexo peer-to-peer Netzwerk
+Comment[fr]=Ethanexo, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=Ethanexo, eşten eşe kriptografik sanal para birimi
+Exec=ethanexo-qt %u
 Terminal=false
 Type=Application
-Icon=dash128
-MimeType=x-scheme-handler/dash;
+Icon=ethanexo128
+MimeType=x-scheme-handler/ethanexo;
 Categories=Office;Finance;P2P;Network;Qt;
-StartupWMClass=Dash-qt
+StartupWMClass=ethanexo-qt

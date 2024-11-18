@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -14,9 +14,8 @@
 #include <QTemporaryFile>
 #include <QVariant>
 #ifdef USE_DBUS
-#include <QDBusMetaType>
-#include <QtDBus>
 #include <stdint.h>
+#include <QtDBus>
 #endif
 #ifdef Q_OS_MAC
 #include <qt/macnotificationhandler.h>
@@ -67,12 +66,14 @@ Notificator::~Notificator()
 
 #ifdef USE_DBUS
 
-// Loosely based on https://www.qtcentre.org/archive/index.php/t-25879.html
+// Loosely based on http://www.qtcentre.org/archive/index.php/t-25879.html
 class FreedesktopImage
 {
 public:
     FreedesktopImage() {}
     explicit FreedesktopImage(const QImage &img);
+
+    static int metaType();
 
     // Image to variant that can be marshalled over DBus
     static QVariant toVariant(const QImage &img);
@@ -135,10 +136,15 @@ const QDBusArgument &operator>>(const QDBusArgument &a, FreedesktopImage &i)
     return a;
 }
 
+int FreedesktopImage::metaType()
+{
+    return qDBusRegisterMetaType<FreedesktopImage>();
+}
+
 QVariant FreedesktopImage::toVariant(const QImage &img)
 {
     FreedesktopImage fimg(img);
-    return QVariant(qDBusRegisterMetaType<FreedesktopImage>(), &fimg);
+    return QVariant(FreedesktopImage::metaType(), &fimg);
 }
 
 void Notificator::notifyDBus(Class cls, const QString &title, const QString &text, const QIcon &icon, int millisTimeout)

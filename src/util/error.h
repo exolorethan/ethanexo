@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2020 The Bitcoin Core developers
+// Copyright (c) 2010-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -10,14 +10,12 @@
  * string functions. Types and functions defined here should not require any
  * outside dependencies.
  *
- * Error types defined here can be used in different parts of the
+ * Error types defined here can be used in different parts of the bitcoin
  * codebase, to avoid the need to write boilerplate code catching and
  * translating errors passed across wallet/node/rpc/gui code boundaries.
  */
 
 #include <string>
-
-struct bilingual_str;
 
 enum class TransactionError {
     OK, //!< No error
@@ -32,12 +30,9 @@ enum class TransactionError {
     MAX_FEE_EXCEEDED,
 };
 
-bilingual_str TransactionErrorString(const TransactionError error);
+std::string TransactionErrorString(const TransactionError error);
 
-bilingual_str ResolveErrMsg(const std::string& optname, const std::string& strBind);
-
-bilingual_str AmountHighWarn(const std::string& optname);
-
-bilingual_str AmountErrMsg(const std::string& optname, const std::string& strValue);
+std::string AmountHighWarn(const std::string& optname);
+std::string AmountErrMsg(const char* const optname, const std::string& strValue);
 
 #endif // BITCOIN_UTIL_ERROR_H

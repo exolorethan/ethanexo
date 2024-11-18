@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2020 The Bitcoin Core developers
+// Copyright (c) 2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -20,7 +20,7 @@ static void Base58Encode(benchmark::Bench& bench)
         }
     };
     bench.batch(buff.size()).unit("byte").run([&] {
-        EncodeBase58(buff);
+        EncodeBase58(buff.data(), buff.data() + buff.size());
     });
 }
 
@@ -34,8 +34,10 @@ static void Base58CheckEncode(benchmark::Bench& bench)
             200, 24
         }
     };
+    std::vector<unsigned char> vch;
+    vch.assign(buff.begin(), buff.end());
     bench.batch(buff.size()).unit("byte").run([&] {
-        EncodeBase58Check(buff);
+        EncodeBase58Check(vch);
     });
 }
 
@@ -45,7 +47,7 @@ static void Base58Decode(benchmark::Bench& bench)
     const char* addr = "17VZNX1SN5NtKa8UQFxwQbFeFc3iqRYhem";
     std::vector<unsigned char> vch;
     bench.batch(strlen(addr)).unit("byte").run([&] {
-        (void) DecodeBase58(addr, vch, 64);
+        (void) DecodeBase58(addr, vch);
     });
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2019 The Bitcoin Core developers
+// Copyright (c) 2014-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,12 +8,15 @@
 #include <bech32.h>
 #include <chainparams.h>
 
-#include <algorithm>
+#include <boost/variant/apply_visitor.hpp>
+#include <boost/variant/static_visitor.hpp>
+
 #include <assert.h>
 #include <string.h>
 
-namespace {
-class DestinationEncoder
+namespace
+{
+class DestinationEncoder : public boost::static_visitor<std::string>
 {
 private:
     const CChainParams& m_params;
@@ -21,14 +24,14 @@ private:
 public:
     explicit DestinationEncoder(const CChainParams& params) : m_params(params) {}
 
-    std::string operator()(const PKHash& id) const
+    std::string operator()(const CKeyID& id) const
     {
         std::vector<unsigned char> data = m_params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
         data.insert(data.end(), id.begin(), id.end());
         return EncodeBase58Check(data);
     }
 
-    std::string operator()(const ScriptHash& id) const
+    std::string operator()(const CScriptID& id) const
     {
         std::vector<unsigned char> data = m_params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
         data.insert(data.end(), id.begin(), id.end());
@@ -38,34 +41,27 @@ public:
     std::string operator()(const CNoDestination& no) const { return {}; }
 };
 
-CTxDestination DecodeDestination(const std::string& str, const CChainParams& params, std::string& error_str)
+CTxDestination DecodeDestination(const std::string& str, const CChainParams& params)
 {
     std::vector<unsigned char> data;
     uint160 hash;
-    error_str = "";
-    if (DecodeBase58Check(str, data, 21)) {
-        // base58-encoded Dash addresses.
+    if (DecodeBase58Check(str, data)) {
+        // base58-encoded ETXO addresses.
         // Public-key-hash-addresses have version 76 (or 140 testnet).
         // The data vector contains RIPEMD160(SHA256(pubkey)), where pubkey is the serialized public key.
         const std::vector<unsigned char>& pubkey_prefix = params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
         if (data.size() == hash.size() + pubkey_prefix.size() && std::equal(pubkey_prefix.begin(), pubkey_prefix.end(), data.begin())) {
             std::copy(data.begin() + pubkey_prefix.size(), data.end(), hash.begin());
-            return PKHash(hash);
+            return CKeyID(hash);
         }
         // Script-hash-addresses have version 16 (or 19 testnet).
         // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
         const std::vector<unsigned char>& script_prefix = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
         if (data.size() == hash.size() + script_prefix.size() && std::equal(script_prefix.begin(), script_prefix.end(), data.begin())) {
             std::copy(data.begin() + script_prefix.size(), data.end(), hash.begin());
-            return ScriptHash(hash);
+            return CScriptID(hash);
         }
-
-        // Set potential error message.
-        error_str = "Invalid prefix for Base58-encoded address";
     }
-    // Set error message if address can't be interpreted as Base58.
-    if (error_str.empty()) error_str = "Invalid address format";
-
     return CNoDestination();
 }
 } // namespace
@@ -74,7 +70,7 @@ CKey DecodeSecret(const std::string& str)
 {
     CKey key;
     std::vector<unsigned char> data;
-    if (DecodeBase58Check(str, data, 34)) {
+    if (DecodeBase58Check(str, data)) {
         const std::vector<unsigned char>& privkey_prefix = Params().Base58Prefix(CChainParams::SECRET_KEY);
         if ((data.size() == 32 + privkey_prefix.size() || (data.size() == 33 + privkey_prefix.size() && data.back() == 1)) &&
             std::equal(privkey_prefix.begin(), privkey_prefix.end(), data.begin())) {
@@ -105,7 +101,7 @@ CExtPubKey DecodeExtPubKey(const std::string& str)
 {
     CExtPubKey key;
     std::vector<unsigned char> data;
-    if (DecodeBase58Check(str, data, 78)) {
+    if (DecodeBase58Check(str, data)) {
         const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_PUBLIC_KEY);
         if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
@@ -128,7 +124,7 @@ CExtKey DecodeExtKey(const std::string& str)
 {
     CExtKey key;
     std::vector<unsigned char> data;
-    if (DecodeBase58Check(str, data, 78)) {
+    if (DecodeBase58Check(str, data)) {
         const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::EXT_SECRET_KEY);
         if (data.size() == BIP32_EXTKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
@@ -152,24 +148,17 @@ std::string EncodeExtKey(const CExtKey& key)
 
 std::string EncodeDestination(const CTxDestination& dest)
 {
-    return std::visit(DestinationEncoder(Params()), dest);
-}
-
-CTxDestination DecodeDestination(const std::string& str, std::string& error_msg)
-{
-    return DecodeDestination(str, Params(), error_msg);
+    return boost::apply_visitor(DestinationEncoder(Params()), dest);
 }
 
 CTxDestination DecodeDestination(const std::string& str)
 {
-    std::string error_msg;
-    return DecodeDestination(str, error_msg);
+    return DecodeDestination(str, Params());
 }
 
 bool IsValidDestinationString(const std::string& str, const CChainParams& params)
 {
-    std::string error_msg;
-    return IsValidDestination(DecodeDestination(str, params, error_msg));
+    return IsValidDestination(DecodeDestination(str, params));
 }
 
 bool IsValidDestinationString(const std::string& str)

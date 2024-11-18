@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020 The Bitcoin Core developers
+// Copyright (c) 2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -12,7 +12,7 @@
 
 #include <cassert>
 
-FUZZ_TARGET(tx_in)
+void test_one_input(const std::vector<uint8_t>& buffer)
 {
     CDataStream ds(buffer, SER_NETWORK, INIT_PROTO_VERSION);
     CTxIn tx_in;
@@ -25,6 +25,8 @@ FUZZ_TARGET(tx_in)
         return;
     }
 
+    (void)GetTransactionInputWeight(tx_in);
+    (void)GetVirtualTransactionInputSize(tx_in);
     (void)RecursiveDynamicUsage(tx_in);
 
     (void)tx_in.ToString();

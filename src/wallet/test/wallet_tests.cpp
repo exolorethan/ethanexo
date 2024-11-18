@@ -1,28 +1,20 @@
-// Copyright (c) 2012-2020 The Bitcoin Core developers
+// Copyright (c) 2012-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/wallet.h>
 
-#include <future>
 #include <iostream>
 #include <memory>
 #include <stdint.h>
 #include <vector>
 
-#include <coinjoin/client.h>
-#include <coinjoin/context.h>
+#include <consensus/validation.h>
 #include <interfaces/chain.h>
-#include <interfaces/coinjoin.h>
 #include <key_io.h>
-#include <node/blockstorage.h>
-#include <node/context.h>
 #include <policy/policy.h>
-#include <rpc/rawtransaction_util.h>
 #include <rpc/server.h>
-#include <test/util/logging.h>
 #include <test/util/setup_common.h>
-#include <util/translation.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/test/wallet_test_fixture.h>
@@ -30,92 +22,39 @@
 #include <boost/test/unit_test.hpp>
 #include <univalue.h>
 
-RPCHelpMan importmulti();
-RPCHelpMan dumpwallet();
-RPCHelpMan importwallet();
-extern RPCHelpMan getnewaddress();
-extern RPCHelpMan getrawchangeaddress();
-extern RPCHelpMan getaddressinfo();
-extern RPCHelpMan addmultisigaddress();
-
-extern RecursiveMutex cs_wallets;
-
-// Ensure that fee levels defined in the wallet are at least as high
-// as the default levels for node policy.
-static_assert(DEFAULT_TRANSACTION_MINFEE >= DEFAULT_MIN_RELAY_TX_FEE, "wallet minimum fee is smaller than default relay fee");
-static_assert(WALLET_INCREMENTAL_RELAY_FEE >= DEFAULT_INCREMENTAL_RELAY_FEE, "wallet incremental fee is smaller than default incremental relay fee");
+extern UniValue importmulti(const JSONRPCRequest& request);
+extern UniValue dumpwallet(const JSONRPCRequest& request);
+extern UniValue importwallet(const JSONRPCRequest& request);
+extern UniValue getnewaddress(const JSONRPCRequest& request);
 
 BOOST_FIXTURE_TEST_SUITE(wallet_tests, WalletTestingSetup)
 
-namespace {
-constexpr CAmount fallbackFee = 1000;
-} // anonymous namespace
-
-static std::shared_ptr<CWallet> TestLoadWallet(interfaces::Chain* chain, interfaces::CoinJoin::Loader* coinjoin_loader)
-{
-    DatabaseOptions options;
-    DatabaseStatus status;
-    bilingual_str error;
-    std::vector<bilingual_str> warnings;
-    auto database = MakeWalletDatabase("", options, status, error);
-    auto wallet = CWallet::Create(chain, coinjoin_loader, "", std::move(database), options.create_flags, error, warnings);
-    if (chain) {
-        wallet->postInitProcess();
-    }
-    return wallet;
-}
-
-static void TestUnloadWallet(std::shared_ptr<CWallet>&& wallet)
-{
-    std::vector<bilingual_str> warnings;
-    SyncWithValidationInterfaceQueue();
-    wallet->m_chain_notifications_handler.reset();
-    RemoveWallet(wallet, std::nullopt, warnings);
-    UnloadWallet(std::move(wallet));
-}
-
-static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t index, const CKey& key, const CScript& pubkey)
-{
-    CMutableTransaction mtx;
-    mtx.vout.push_back({from.vout[index].nValue - DEFAULT_TRANSACTION_MAXFEE, pubkey});
-    mtx.vin.push_back({CTxIn{from.GetHash(), index}});
-    FillableSigningProvider keystore;
-    keystore.AddKey(key);
-    std::map<COutPoint, Coin> coins;
-    coins[mtx.vin[0].prevout].out = from.vout[index];
-    std::map<int, bilingual_str> input_errors;
-    BOOST_CHECK(SignTransaction(mtx, &keystore, coins, SIGHASH_ALL, input_errors));
-    return mtx;
-}
-
 static void AddKey(CWallet& wallet, const CKey& key)
 {
-    auto spk_man = wallet.GetOrCreateLegacyScriptPubKeyMan();
-    LOCK2(wallet.cs_wallet, spk_man->cs_KeyStore);
-    spk_man->AddKeyPubKey(key, key.GetPubKey());
+    LOCK(wallet.cs_wallet);
+    wallet.AddKeyPubKey(key, key.GetPubKey());
 }
 
 BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
 {
     // Cap last block file size, and mine new block in a new block file.
-    CBlockIndex* oldTip = m_node.chainman->ActiveChain().Tip();
-    WITH_LOCK(::cs_main, m_node.chainman->m_blockman.GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE);
+    CBlockIndex* oldTip = ::ChainActive().Tip();
+    GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE;
     CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-    CBlockIndex* newTip = m_node.chainman->ActiveChain().Tip();
+    CBlockIndex* newTip = ::ChainActive().Tip();
 
-    // Verify ScanForWalletTransactions fails to read an unknown start block.
+    auto chain = interfaces::MakeChain();
+    auto locked_chain = chain->lock();
+    LockAnnotation lock(::cs_main);
+
+    // Verify ScanForWalletTransactions accommodates a null start block.
     {
-        CWallet wallet(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        wallet.SetupLegacyScriptPubKeyMan();
-        {
-            LOCK(wallet.cs_wallet);
-            wallet.SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
+        CWallet wallet(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         AddKey(wallet, coinbaseKey);
-        WalletRescanReserver reserver(wallet);
+        WalletRescanReserver reserver(&wallet);
         reserver.reserve();
-        CWallet::ScanResult result = wallet.ScanForWalletTransactions({} /* start_block */, 0 /* start_height */, {} /* max_height */, reserver, false /* update */);
-        BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::FAILURE);
+        CWallet::ScanResult result = wallet.ScanForWalletTransactions({} /* start_block */, {} /* stop_block */, reserver, false /* update */);
+        BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
         BOOST_CHECK(result.last_failed_block.IsNull());
         BOOST_CHECK(result.last_scanned_block.IsNull());
         BOOST_CHECK(!result.last_scanned_height);
@@ -125,15 +64,11 @@ BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
     // Verify ScanForWalletTransactions picks up transactions in both the old
     // and new block files.
     {
-        CWallet wallet(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        {
-            LOCK(wallet.cs_wallet);
-            wallet.SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
+        CWallet wallet(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         AddKey(wallet, coinbaseKey);
-        WalletRescanReserver reserver(wallet);
+        WalletRescanReserver reserver(&wallet);
         reserver.reserve();
-        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), oldTip->nHeight, {} /* max_height */, reserver, false /* update */);
+        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), {} /* stop_block */, reserver, false /* update */);
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
         BOOST_CHECK(result.last_failed_block.IsNull());
         BOOST_CHECK_EQUAL(result.last_scanned_block, newTip->GetBlockHash());
@@ -142,26 +77,17 @@ BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
     }
 
     // Prune the older block file.
-    int file_number;
-    {
-        LOCK(cs_main);
-        file_number = oldTip->GetBlockPos().nFile;
-        Assert(m_node.chainman)->m_blockman.PruneOneBlockFile(file_number);
-    }
-    UnlinkPrunedFiles({file_number});
+    PruneOneBlockFile(oldTip->GetBlockPos().nFile);
+    UnlinkPrunedFiles({oldTip->GetBlockPos().nFile});
 
     // Verify ScanForWalletTransactions only picks transactions in the new block
     // file.
     {
-        CWallet wallet(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        {
-            LOCK(wallet.cs_wallet);
-            wallet.SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
+        CWallet wallet(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         AddKey(wallet, coinbaseKey);
-        WalletRescanReserver reserver(wallet);
+        WalletRescanReserver reserver(&wallet);
         reserver.reserve();
-        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), oldTip->nHeight, {} /* max_height */, reserver, false /* update */);
+        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), {} /* stop_block */, reserver, false /* update */);
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::FAILURE);
         BOOST_CHECK_EQUAL(result.last_failed_block, oldTip->GetBlockHash());
         BOOST_CHECK_EQUAL(result.last_scanned_block, newTip->GetBlockHash());
@@ -170,24 +96,16 @@ BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
     }
 
     // Prune the remaining block file.
-    {
-        LOCK(cs_main);
-        file_number = newTip->GetBlockPos().nFile;
-        Assert(m_node.chainman)->m_blockman.PruneOneBlockFile(file_number);
-    }
-    UnlinkPrunedFiles({file_number});
+    PruneOneBlockFile(newTip->GetBlockPos().nFile);
+    UnlinkPrunedFiles({newTip->GetBlockPos().nFile});
 
     // Verify ScanForWalletTransactions scans no blocks.
     {
-        CWallet wallet(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        {
-            LOCK(wallet.cs_wallet);
-            wallet.SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
+        CWallet wallet(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         AddKey(wallet, coinbaseKey);
-        WalletRescanReserver reserver(wallet);
+        WalletRescanReserver reserver(&wallet);
         reserver.reserve();
-        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), oldTip->nHeight, {} /* max_height */, reserver, false /* update */);
+        CWallet::ScanResult result = wallet.ScanForWalletTransactions(oldTip->GetBlockHash(), {} /* stop_block */, reserver, false /* update */);
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::FAILURE);
         BOOST_CHECK_EQUAL(result.last_failed_block, newTip->GetBlockHash());
         BOOST_CHECK(result.last_scanned_block.IsNull());
@@ -199,27 +117,24 @@ BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
 BOOST_FIXTURE_TEST_CASE(importmulti_rescan, TestChain100Setup)
 {
     // Cap last block file size, and mine new block in a new block file.
-    CBlockIndex* oldTip = m_node.chainman->ActiveChain().Tip();
-    WITH_LOCK(::cs_main, m_node.chainman->m_blockman.GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE);
+    CBlockIndex* oldTip = ::ChainActive().Tip();
+    GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE;
     CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-    CBlockIndex* newTip = m_node.chainman->ActiveChain().Tip();
+    CBlockIndex* newTip = ::ChainActive().Tip();
+
+    auto chain = interfaces::MakeChain();
+    auto locked_chain = chain->lock();
+    LockAnnotation lock(::cs_main);
 
     // Prune the older block file.
-    int file_number;
-    {
-        LOCK(cs_main);
-        file_number = oldTip->GetBlockPos().nFile;
-        Assert(m_node.chainman)->m_blockman.PruneOneBlockFile(file_number);
-    }
-    UnlinkPrunedFiles({file_number});
+    PruneOneBlockFile(oldTip->GetBlockPos().nFile);
+    UnlinkPrunedFiles({oldTip->GetBlockPos().nFile});
 
     // Verify importmulti RPC returns failure for a key whose creation time is
     // before the missing block, and success for a key whose creation time is
     // after.
     {
-        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        wallet->SetupLegacyScriptPubKeyMan();
-        WITH_LOCK(wallet->cs_wallet, wallet->SetLastBlockProcessed(newTip->nHeight, newTip->GetBlockHash()));
+        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         AddWallet(wallet);
         UniValue keys;
         keys.setArray();
@@ -241,17 +156,17 @@ BOOST_FIXTURE_TEST_CASE(importmulti_rescan, TestChain100Setup)
         request.params.setArray();
         request.params.push_back(keys);
 
-        UniValue response = importmulti().HandleRequest(request);
+        UniValue response = importmulti(request);
         BOOST_CHECK_EQUAL(response.write(),
             strprintf("[{\"success\":false,\"error\":{\"code\":-1,\"message\":\"Rescan failed for key with creation "
                       "timestamp %d. There was an error reading a block from time %d, which is after or within %d "
                       "seconds of key creation, and could contain transactions pertaining to the key. As a result, "
                       "transactions and coins using this key may not appear in the wallet. This error could be caused "
-                      "by pruning or data corruption (see dashd log for details) and could be dealt with by "
+                      "by pruning or data corruption (see ethanexod log for details) and could be dealt with by "
                       "downloading and rescanning the relevant blocks (see -reindex and -rescan "
                       "options).\"}},{\"success\":true}]",
                               0, oldTip->GetBlockTimeMax(), TIMESTAMP_WINDOW));
-        RemoveWallet(wallet, std::nullopt);
+        RemoveWallet(wallet);
     }
 }
 
@@ -263,7 +178,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
 {
     // Create two blocks with same timestamp to verify that importwallet rescan
     // will pick up both blocks, not just the first.
-    const int64_t BLOCK_TIME = m_node.chainman->ActiveChain().Tip()->GetBlockTimeMax() + 5;
+    const int64_t BLOCK_TIME = ::ChainActive().Tip()->GetBlockTimeMax() + 5;
     SetMockTime(BLOCK_TIME);
     m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
     m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
@@ -274,43 +189,40 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
     SetMockTime(KEY_TIME);
     m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
 
-    std::string backup_file = fs::PathToString(gArgs.GetDataDirNet() / "wallet.backup");
+    auto chain = interfaces::MakeChain();
+    auto locked_chain = chain->lock();
+    LockAnnotation lock(::cs_main);
+
+    std::string backup_file = (GetDataDir() / "wallet.backup").string();
 
     // Import key into wallet and call dumpwallet to create backup file.
     {
-        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-        {
-            auto spk_man = wallet->GetOrCreateLegacyScriptPubKeyMan();
-            LOCK2(wallet->cs_wallet, spk_man->cs_KeyStore);
-            spk_man->mapKeyMetadata[coinbaseKey.GetPubKey().GetID()].nCreateTime = KEY_TIME;
-            spk_man->AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey());
-
-            AddWallet(wallet);
-            wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
-        JSONRPCRequest request;
-        request.params.setArray();
-        request.params.push_back(backup_file);
-
-        ::dumpwallet().HandleRequest(request);
-        RemoveWallet(wallet, std::nullopt);
-    }
-
-    // Call importwallet RPC and verify all blocks with timestamps >= BLOCK_TIME
-    // were scanned, and no prior blocks were scanned.
-    {
-        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
+        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(*chain, WalletLocation(), WalletDatabase::CreateDummy());
         LOCK(wallet->cs_wallet);
-        wallet->SetupLegacyScriptPubKeyMan();
+        wallet->mapKeyMetadata[coinbaseKey.GetPubKey().GetID()].nCreateTime = KEY_TIME;
+        wallet->AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey());
 
         JSONRPCRequest request;
         request.params.setArray();
         request.params.push_back(backup_file);
         AddWallet(wallet);
-        wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        ::importwallet().HandleRequest(request);
-        RemoveWallet(wallet, std::nullopt);
+        ::dumpwallet(request);
+        RemoveWallet(wallet);
+    }
 
+    // Call importwallet RPC and verify all blocks with timestamps >= BLOCK_TIME
+    // were scanned, and no prior blocks were scanned.
+    {
+        std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(*chain, WalletLocation(), WalletDatabase::CreateDummy());
+
+        JSONRPCRequest request;
+        request.params.setArray();
+        request.params.push_back(backup_file);
+        AddWallet(wallet);
+        ::importwallet(request);
+        RemoveWallet(wallet);
+
+        LOCK(wallet->cs_wallet);
         BOOST_CHECK_EQUAL(wallet->mapWallet.size(), 3U);
         BOOST_CHECK_EQUAL(m_coinbase_txns.size(), 103U);
         for (size_t i = 0; i < m_coinbase_txns.size(); ++i) {
@@ -319,83 +231,8 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
             BOOST_CHECK_EQUAL(found, expected);
         }
     }
-}
 
-// Verify getaddressinfo RPC produces more or less expected results
-BOOST_FIXTURE_TEST_CASE(rpc_getaddressinfo, TestChain100Setup)
-{
-    std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateMockWalletDatabase());
-    wallet->SetupLegacyScriptPubKeyMan();
-    AddWallet(wallet);
-    CoreContext context{m_node};
-    JSONRPCRequest request;
-    request.context = context;
-    UniValue response;
-
-    // test p2pkh
-    std::string addr;
-    BOOST_CHECK_NO_THROW(addr = ::getrawchangeaddress().HandleRequest(request).get_str());
-
-    request.params.clear();
-    request.params.setArray();
-    request.params.push_back(addr);
-    BOOST_CHECK_NO_THROW(response = ::getaddressinfo().HandleRequest(request).get_obj());
-
-    BOOST_CHECK_EQUAL(find_value(response, "ismine").get_bool(), true);
-    BOOST_CHECK_EQUAL(find_value(response, "solvable").get_bool(), true);
-    BOOST_CHECK_EQUAL(find_value(response, "iswatchonly").get_bool(), false);
-    BOOST_CHECK_EQUAL(find_value(response, "isscript").get_bool(), false);
-    BOOST_CHECK_EQUAL(find_value(response, "ischange").get_bool(), true);
-    BOOST_CHECK(find_value(response, "pubkeys").isNull());
-    BOOST_CHECK(find_value(response, "addresses").isNull());
-    BOOST_CHECK(find_value(response, "sigsrequired").isNull());
-    BOOST_CHECK(find_value(response, "label").isNull());
-
-    // test p2sh/multisig
-    std::string addr1;
-    std::string addr2;
-    BOOST_CHECK_NO_THROW(addr1 = ::getnewaddress().HandleRequest(request).get_str());
-    BOOST_CHECK_NO_THROW(addr2 = ::getnewaddress().HandleRequest(request).get_str());
-
-    UniValue keys;
-    keys.setArray();
-    keys.push_back(addr1);
-    keys.push_back(addr2);
-
-    request.params.clear();
-    request.params.setArray();
-    request.params.push_back(2);
-    request.params.push_back(keys);
-
-    BOOST_CHECK_NO_THROW(response = ::addmultisigaddress().HandleRequest(request));
-
-    std::string multisig = find_value(response.get_obj(), "address").get_str();
-
-    request.params.clear();
-    request.params.setArray();
-    request.params.push_back(multisig);
-    BOOST_CHECK_NO_THROW(response = ::getaddressinfo().HandleRequest(request).get_obj());
-
-    BOOST_CHECK_EQUAL(find_value(response, "ismine").get_bool(), true);
-    BOOST_CHECK_EQUAL(find_value(response, "solvable").get_bool(), true);
-    BOOST_CHECK_EQUAL(find_value(response, "iswatchonly").get_bool(), false);
-    BOOST_CHECK_EQUAL(find_value(response, "isscript").get_bool(), true);
-    BOOST_CHECK_EQUAL(find_value(response, "ischange").get_bool(), false);
-    BOOST_CHECK_EQUAL(find_value(response, "sigsrequired").get_int(), 2);
-    BOOST_CHECK(find_value(response, "label").isNull());
-
-    UniValue labels = find_value(response, "labels").get_array();
-    UniValue pubkeys = find_value(response, "pubkeys").get_array();
-    UniValue addresses = find_value(response, "addresses").get_array();
-
-    BOOST_CHECK_EQUAL(labels.size(), 1);
-    BOOST_CHECK_EQUAL(labels[0].get_str(), "");
-    BOOST_CHECK_EQUAL(addresses.size(), 2);
-    BOOST_CHECK_EQUAL(addresses[0].get_str(), addr1);
-    BOOST_CHECK_EQUAL(addresses[1].get_str(), addr2);
-    BOOST_CHECK_EQUAL(pubkeys.size(), 2);
-
-    RemoveWallet(wallet, std::nullopt);
+    SetMockTime(0);
 }
 
 // Check that GetImmatureCredit() returns a newly calculated value instead of
@@ -406,51 +243,56 @@ BOOST_FIXTURE_TEST_CASE(rpc_getaddressinfo, TestChain100Setup)
 // debit functions.
 BOOST_FIXTURE_TEST_CASE(coin_mark_dirty_immature_credit, TestChain100Setup)
 {
-    CWallet wallet(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-    auto spk_man = wallet.GetOrCreateLegacyScriptPubKeyMan();
+    auto chain = interfaces::MakeChain();
+
+    CWallet wallet(*chain, WalletLocation(), WalletDatabase::CreateDummy());
     CWalletTx wtx(&wallet, m_coinbase_txns.back());
 
-    LOCK2(wallet.cs_wallet, spk_man->cs_KeyStore);
-    wallet.SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
+    auto locked_chain = chain->lock();
+    LockAnnotation lock(::cs_main);
+    LOCK(wallet.cs_wallet);
 
-    CWalletTx::Confirmation confirm(CWalletTx::Status::CONFIRMED, m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash(), 0);
-    wtx.m_confirm = confirm;
+    wtx.hashBlock = ::ChainActive().Tip()->GetBlockHash();
+    wtx.nIndex = 0;
 
     // Call GetImmatureCredit() once before adding the key to the wallet to
     // cache the current immature credit amount, which is 0.
-    BOOST_CHECK_EQUAL(wtx.GetImmatureCredit(), 0);
+    BOOST_CHECK_EQUAL(wtx.GetImmatureCredit(*locked_chain), 0);
 
     // Invalidate the cached value, add the key, and make sure a new immature
     // credit amount is calculated.
     wtx.MarkDirty();
-    BOOST_CHECK(spk_man->AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey()));
-    BOOST_CHECK_EQUAL(wtx.GetImmatureCredit(), 500*COIN);
+    wallet.AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey());
+    BOOST_CHECK_EQUAL(wtx.GetImmatureCredit(*locked_chain), 500*COIN);
 }
 
-static int64_t AddTx(ChainstateManager& chainman, CWallet& wallet, uint32_t lockTime, int64_t mockTime, int64_t blockTime)
+static int64_t AddTx(CWallet& wallet, uint32_t lockTime, int64_t mockTime, int64_t blockTime)
 {
     CMutableTransaction tx;
-    CWalletTx::Confirmation confirm;
     tx.nLockTime = lockTime;
     SetMockTime(mockTime);
     CBlockIndex* block = nullptr;
     if (blockTime > 0) {
-        LOCK(cs_main);
-        auto inserted = chainman.BlockIndex().emplace(std::piecewise_construct, std::make_tuple(GetRandHash()), std::make_tuple());
+        LockAnnotation lock(::cs_main); // for mapBlockIndex
+        auto locked_chain = wallet.chain().lock();
+        auto inserted = ::BlockIndex().emplace(GetRandHash(), new CBlockIndex);
         assert(inserted.second);
         const uint256& hash = inserted.first->first;
-        block = &inserted.first->second;
+        block = inserted.first->second;
         block->nTime = blockTime;
         block->phashBlock = &hash;
-        confirm = {CWalletTx::Status::CONFIRMED, block->nHeight, hash, 0};
     }
 
-    // If transaction is already in map, to avoid inconsistencies, unconfirmation
-    // is needed before confirm again with different block.
-    return wallet.AddToWallet(MakeTransactionRef(tx), confirm, [&](CWalletTx& wtx, bool /* new_tx */) {
-        wtx.setUnconfirmed();
-        return true;
-    })->nTimeSmart;
+    CWalletTx wtx(&wallet, MakeTransactionRef(tx));
+    if (block) {
+        wtx.SetMerkleBranch(block->GetBlockHash(), 0);
+    }
+    {
+        LOCK(cs_main);
+        wallet.AddToWallet(wtx);
+    }
+    LOCK(wallet.cs_wallet);
+    return wallet.mapWallet.at(wtx.GetHash()).nTimeSmart;
 }
 
 // Simple test to verify assignment of CWalletTx::nSmartTime value. Could be
@@ -458,120 +300,41 @@ static int64_t AddTx(ChainstateManager& chainman, CWallet& wallet, uint32_t lock
 BOOST_AUTO_TEST_CASE(ComputeTimeSmart)
 {
     // New transaction should use clock time if lower than block time.
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 1, 100, 120), 100);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 1, 100, 120), 100);
 
     // Test that updating existing transaction does not change smart time.
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 1, 200, 220), 100);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 1, 200, 220), 100);
 
     // New transaction should use clock time if there's no block time.
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 2, 300, 0), 300);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 2, 300, 0), 300);
 
     // New transaction should use block time if lower than clock time.
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 3, 420, 400), 400);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 3, 420, 400), 400);
 
     // New transaction should use latest entry time if higher than
     // min(block time, clock time).
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 4, 500, 390), 400);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 4, 500, 390), 400);
 
     // If there are future entries, new transaction should use time of the
     // newest entry that is no more than 300 seconds ahead of the clock time.
-    BOOST_CHECK_EQUAL(AddTx(*m_node.chainman, m_wallet, 5, 50, 600), 300);
+    BOOST_CHECK_EQUAL(AddTx(m_wallet, 5, 50, 600), 300);
+
+    // Reset mock time for other tests.
+    SetMockTime(0);
 }
 
 BOOST_AUTO_TEST_CASE(LoadReceiveRequests)
 {
-    CTxDestination dest = PKHash();
+    CTxDestination dest = CKeyID();
     LOCK(m_wallet.cs_wallet);
-    WalletBatch batch{m_wallet.GetDatabase()};
-    m_wallet.SetAddressUsed(batch, dest, true);
-    m_wallet.SetAddressReceiveRequest(batch, dest, "0", "val_rr0");
-    m_wallet.SetAddressReceiveRequest(batch, dest, "1", "val_rr1");
+    m_wallet.AddDestData(dest, "misc", "val_misc");
+    m_wallet.AddDestData(dest, "rr0", "val_rr0");
+    m_wallet.AddDestData(dest, "rr1", "val_rr1");
 
-    auto values = m_wallet.GetAddressReceiveRequests();
+    auto values = m_wallet.GetDestValues("rr");
     BOOST_CHECK_EQUAL(values.size(), 2U);
     BOOST_CHECK_EQUAL(values[0], "val_rr0");
     BOOST_CHECK_EQUAL(values[1], "val_rr1");
-}
-
-// Test some watch-only LegacyScriptPubKeyMan methods by the procedure of loading (LoadWatchOnly),
-// checking (HaveWatchOnly), getting (GetWatchPubKey) and removing (RemoveWatchOnly) a
-// given PubKey, resp. its corresponding P2PK Script. Results of the the impact on
-// the address -> PubKey map is dependent on whether the PubKey is a point on the curve
-static void TestWatchOnlyPubKey(LegacyScriptPubKeyMan* spk_man, const CPubKey& add_pubkey)
-{
-    CScript p2pk = GetScriptForRawPubKey(add_pubkey);
-    CKeyID add_address = add_pubkey.GetID();
-    CPubKey found_pubkey;
-    LOCK(spk_man->cs_KeyStore);
-
-    // all Scripts (i.e. also all PubKeys) are added to the general watch-only set
-    BOOST_CHECK(!spk_man->HaveWatchOnly(p2pk));
-    spk_man->LoadWatchOnly(p2pk);
-    BOOST_CHECK(spk_man->HaveWatchOnly(p2pk));
-
-    // only PubKeys on the curve shall be added to the watch-only address -> PubKey map
-    bool is_pubkey_fully_valid = add_pubkey.IsFullyValid();
-    if (is_pubkey_fully_valid) {
-        BOOST_CHECK(spk_man->GetWatchPubKey(add_address, found_pubkey));
-        BOOST_CHECK(found_pubkey == add_pubkey);
-    } else {
-        BOOST_CHECK(!spk_man->GetWatchPubKey(add_address, found_pubkey));
-        BOOST_CHECK(found_pubkey == CPubKey()); // passed key is unchanged
-    }
-
-    spk_man->RemoveWatchOnly(p2pk);
-    BOOST_CHECK(!spk_man->HaveWatchOnly(p2pk));
-
-    if (is_pubkey_fully_valid) {
-        BOOST_CHECK(!spk_man->GetWatchPubKey(add_address, found_pubkey));
-        BOOST_CHECK(found_pubkey == add_pubkey); // passed key is unchanged
-    }
-}
-
-// Cryptographically invalidate a PubKey whilst keeping length and first byte
-static void PollutePubKey(CPubKey& pubkey)
-{
-    assert(pubkey.size() >= 1);
-    std::vector<unsigned char> pubkey_raw;
-    pubkey_raw.push_back(pubkey[0]);
-    pubkey_raw.insert(pubkey_raw.end(), pubkey.size() - 1, 0);
-    pubkey = CPubKey(pubkey_raw);
-    assert(!pubkey.IsFullyValid());
-    assert(pubkey.IsValid());
-}
-
-// Test watch-only logic for PubKeys
-BOOST_AUTO_TEST_CASE(WatchOnlyPubKeys)
-{
-    CKey key;
-    CPubKey pubkey;
-    LegacyScriptPubKeyMan* spk_man = m_wallet.GetOrCreateLegacyScriptPubKeyMan();
-
-    BOOST_CHECK(!spk_man->HaveWatchOnly());
-
-    // uncompressed valid PubKey
-    key.MakeNewKey(false);
-    pubkey = key.GetPubKey();
-    assert(!pubkey.IsCompressed());
-    TestWatchOnlyPubKey(spk_man, pubkey);
-
-    // uncompressed cryptographically invalid PubKey
-    PollutePubKey(pubkey);
-    TestWatchOnlyPubKey(spk_man, pubkey);
-
-    // compressed valid PubKey
-    key.MakeNewKey(true);
-    pubkey = key.GetPubKey();
-    assert(pubkey.IsCompressed());
-    TestWatchOnlyPubKey(spk_man, pubkey);
-
-    // compressed cryptographically invalid PubKey
-    PollutePubKey(pubkey);
-    TestWatchOnlyPubKey(spk_man, pubkey);
-
-    // invalid empty PubKey
-    pubkey = CPubKey();
-    TestWatchOnlyPubKey(spk_man, pubkey);
 }
 
 class ListCoinsTestingSetup : public TestChain100Setup
@@ -580,19 +343,16 @@ public:
     ListCoinsTestingSetup()
     {
         CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-        wallet = std::make_unique<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateMockWalletDatabase());
-        {
-            LOCK(wallet->cs_wallet);
-            wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
-        wallet->LoadWallet();
+        wallet = MakeUnique<CWallet>(*m_chain, WalletLocation(), WalletDatabase::CreateMock());
+        bool firstRun;
+        wallet->LoadWallet(firstRun);
         AddKey(*wallet, coinbaseKey);
-        WalletRescanReserver reserver(*wallet);
+        WalletRescanReserver reserver(wallet.get());
         reserver.reserve();
-        CWallet::ScanResult result = wallet->ScanForWalletTransactions(m_node.chainman->ActiveChain().Genesis()->GetBlockHash(), 0 /* start_height */, {} /* max_height */, reserver, false /* update */);
+        CWallet::ScanResult result = wallet->ScanForWalletTransactions(::ChainActive().Genesis()->GetBlockHash(), {} /* stop_block */, reserver, false /* update */);
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
-        BOOST_CHECK_EQUAL(result.last_scanned_block, m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        BOOST_CHECK_EQUAL(*result.last_scanned_height, m_node.chainman->ActiveChain().Height());
+        BOOST_CHECK_EQUAL(result.last_scanned_block, ::ChainActive().Tip()->GetBlockHash());
+        BOOST_CHECK_EQUAL(*result.last_scanned_height, ::ChainActive().Height());
         BOOST_CHECK(result.last_failed_block.IsNull());
     }
 
@@ -606,11 +366,14 @@ public:
         CTransactionRef tx;
         CAmount fee;
         int changePos = -1;
-        bilingual_str error;
+        std::string error;
         CCoinControl dummy;
-        FeeCalculation fee_calc_out;
-        BOOST_CHECK(wallet->CreateTransaction({recipient}, tx, fee, changePos, error, dummy, fee_calc_out));
-        wallet->CommitTransaction(tx, {}, {});
+        {
+            auto locked_chain = m_chain->lock();
+            BOOST_CHECK(wallet->CreateTransaction(*locked_chain, {recipient}, tx, fee, changePos, error, dummy));
+        }
+        CValidationState state;
+        BOOST_CHECK(wallet->CommitTransaction(tx, {}, {}, state));
         CMutableTransaction blocktx;
         {
             LOCK(wallet->cs_wallet);
@@ -618,15 +381,15 @@ public:
         }
         CreateAndProcessBlock({CMutableTransaction(blocktx)}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
 
+        LOCK(cs_main);
         LOCK(wallet->cs_wallet);
-        wallet->SetLastBlockProcessed(wallet->GetLastBlockHeight() + 1, m_node.chainman->ActiveChain().Tip()->GetBlockHash());
         auto it = wallet->mapWallet.find(tx->GetHash());
         BOOST_CHECK(it != wallet->mapWallet.end());
-        CWalletTx::Confirmation confirm(CWalletTx::Status::CONFIRMED, m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash(), 1);
-        it->second.m_confirm = confirm;
+        it->second.SetMerkleBranch(::ChainActive().Tip()->GetBlockHash(), 1);
         return it->second;
     }
 
+    std::unique_ptr<interfaces::Chain> m_chain = interfaces::MakeChain();
     std::unique_ptr<CWallet> wallet;
 };
 
@@ -638,11 +401,12 @@ BOOST_FIXTURE_TEST_CASE(ListCoins, ListCoinsTestingSetup)
     // address.
     std::map<CTxDestination, std::vector<COutput>> list;
     {
+        auto locked_chain = m_chain->lock();
         LOCK(wallet->cs_wallet);
-        list = wallet->ListCoins();
+        list = wallet->ListCoins(*locked_chain);
     }
     BOOST_CHECK_EQUAL(list.size(), 1U);
-    BOOST_CHECK_EQUAL(std::get<PKHash>(list.begin()->first).ToString(), coinbaseAddress);
+    BOOST_CHECK_EQUAL(boost::get<CKeyID>(list.begin()->first).ToString(), coinbaseAddress);
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 1U);
 
     // Check initial balance from one mature coinbase transaction.
@@ -654,18 +418,20 @@ BOOST_FIXTURE_TEST_CASE(ListCoins, ListCoinsTestingSetup)
     // pubkey.
     AddTx(CRecipient{GetScriptForRawPubKey({}), 1 * COIN, false /* subtract fee */});
     {
+        auto locked_chain = m_chain->lock();
         LOCK(wallet->cs_wallet);
-        list = wallet->ListCoins();
+        list = wallet->ListCoins(*locked_chain);
     }
     BOOST_CHECK_EQUAL(list.size(), 1U);
-    BOOST_CHECK_EQUAL(std::get<PKHash>(list.begin()->first).ToString(), coinbaseAddress);
+    BOOST_CHECK_EQUAL(boost::get<CKeyID>(list.begin()->first).ToString(), coinbaseAddress);
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 2U);
 
     // Lock both coins. Confirm number of available coins drops to 0.
     {
+        auto locked_chain = m_chain->lock();
         LOCK(wallet->cs_wallet);
         std::vector<COutput> available;
-        wallet->AvailableCoins(available);
+        wallet->AvailableCoins(*locked_chain, available);
         BOOST_CHECK_EQUAL(available.size(), 2U);
     }
     for (const auto& group : list) {
@@ -675,19 +441,21 @@ BOOST_FIXTURE_TEST_CASE(ListCoins, ListCoinsTestingSetup)
         }
     }
     {
+        auto locked_chain = m_chain->lock();
         LOCK(wallet->cs_wallet);
         std::vector<COutput> available;
-        wallet->AvailableCoins(available);
+        wallet->AvailableCoins(*locked_chain, available);
         BOOST_CHECK_EQUAL(available.size(), 0U);
     }
     // Confirm ListCoins still returns same result as before, despite coins
     // being locked.
     {
+        auto locked_chain = m_chain->lock();
         LOCK(wallet->cs_wallet);
-        list = wallet->ListCoins();
+        list = wallet->ListCoins(*locked_chain);
     }
     BOOST_CHECK_EQUAL(list.size(), 1U);
-    BOOST_CHECK_EQUAL(std::get<PKHash>(list.begin()->first).ToString(), coinbaseAddress);
+    BOOST_CHECK_EQUAL(boost::get<CKeyID>(list.begin()->first).ToString(), coinbaseAddress);
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 2U);
 }
 
@@ -712,28 +480,27 @@ public:
     const std::string strTransactionTooLarge = "Transaction too large";
     const std::string strChangeIndexOutOfRange = "Change index out of range";
     const std::string strExceededMaxTries = "Exceeded max tries.";
-    const std::string strMaxFeeExceeded = "Fee exceeds maximum configured by user (e.g. -maxtxfee, maxfeerate)";
+    const std::string strMaxFeeExceeded = "Fee exceeds maximum configured by -maxtxfee";
 
     CreateTransactionTestSetup()
     {
         CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-        wallet = std::make_unique<CWallet>(m_node.chain.get(), m_node.coinjoin_loader.get(), "", CreateMockWalletDatabase());
-        wallet->LoadWallet();
+        wallet = MakeUnique<CWallet>(*m_chain, WalletLocation(), WalletDatabase::CreateMock());
+        bool firstRun;
+        wallet->LoadWallet(firstRun);
         AddWallet(wallet);
         AddKey(*wallet, coinbaseKey);
-        WalletRescanReserver reserver(*wallet);
+        WalletRescanReserver reserver(wallet.get());
         reserver.reserve();
-        {
-            LOCK(wallet->cs_wallet);
-            wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        }
-        CWallet::ScanResult result = wallet->ScanForWalletTransactions(m_node.chainman->ActiveChain().Genesis()->GetBlockHash(), 0 /* start_height */, {} /* max_height */, reserver, false /* update */);
+        CWallet::ScanResult result = wallet->ScanForWalletTransactions(::ChainActive().Genesis()->GetBlockHash() /* start_block */, {} /* stop_block */, reserver, false /* update */);
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
     }
 
+    std::unique_ptr<interfaces::Chain> m_chain = interfaces::MakeChain();
+
     ~CreateTransactionTestSetup()
     {
-        RemoveWallet(wallet, std::nullopt);
+        RemoveWallet(wallet);
     }
 
     std::shared_ptr<CWallet> wallet;
@@ -760,11 +527,11 @@ public:
         CTransactionRef tx;
         CAmount nFeeRet;
         int nChangePos = nChangePosRequest;
-        bilingual_str strError;
+        std::string strError;
 
-        FeeCalculation fee_calc_out;
-        bool fCreationSucceeded = wallet->CreateTransaction(GetRecipients(vecEntries), tx, nFeeRet, nChangePos, strError, coinControl, fee_calc_out);
-        bool fHitMaxTries = strError.original == strExceededMaxTries;
+        auto locked_chain = wallet->chain().lock();
+        bool fCreationSucceeded = wallet->CreateTransaction(*locked_chain, GetRecipients(vecEntries), tx, nFeeRet, nChangePos, strError, coinControl);
+        bool fHitMaxTries = strError == strExceededMaxTries;
         // This should never happen.
         if (fHitMaxTries) {
             BOOST_CHECK(!fHitMaxTries);
@@ -775,7 +542,7 @@ public:
             return false;
         }
         //  Verify the expected error string if there is one provided
-        if (strErrorExpected.size() && !CheckEqual(strErrorExpected, strError.original)) {
+        if (strErrorExpected.size() && !CheckEqual(strErrorExpected, strError)) {
             return false;
         }
         if (!fCreateShouldSucceed) {
@@ -800,12 +567,9 @@ public:
 
     std::vector<CRecipient> GetRecipients(const std::vector<std::pair<CAmount, bool>>& vecEntries)
     {
-        CoreContext context{m_node};
         std::vector<CRecipient> vecRecipients;
         for (auto entry : vecEntries) {
-            JSONRPCRequest request;
-            request.context = context;
-            vecRecipients.push_back({GetScriptForDestination(DecodeDestination(getnewaddress().HandleRequest(request).get_str())), entry.first, entry.second});
+            vecRecipients.push_back({GetScriptForDestination(DecodeDestination(getnewaddress(JSONRPCRequest()).get_str())), entry.first, entry.second});
         }
         return vecRecipients;
     }
@@ -815,23 +579,21 @@ public:
         CTransactionRef tx;
         CAmount nFeeRet;
         int nChangePosRet = -1;
-        bilingual_str strError;
+        std::string strError;
         CCoinControl coinControl;
-        FeeCalculation fee_calc_out;
-        BOOST_CHECK(wallet->CreateTransaction(GetRecipients(vecEntries), tx, nFeeRet, nChangePosRet, strError, coinControl, fee_calc_out));
-        wallet->CommitTransaction(tx, {}, {});
+        BOOST_CHECK(wallet->CreateTransaction(*wallet->chain().lock(), GetRecipients(vecEntries), tx, nFeeRet, nChangePosRet, strError, coinControl));
+        CValidationState state;
+        BOOST_CHECK(wallet->CommitTransaction(tx, {}, {}, state));
         CMutableTransaction blocktx;
         {
             LOCK(wallet->cs_wallet);
             blocktx = CMutableTransaction(*tx);
         }
         CreateAndProcessBlock({CMutableTransaction(blocktx)}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-        LOCK(wallet->cs_wallet);
+        LOCK2(cs_main, wallet->cs_wallet);
         auto it = wallet->mapWallet.find(tx->GetHash());
         BOOST_CHECK(it != wallet->mapWallet.end());
-        wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-        CWalletTx::Confirmation confirm(CWalletTx::Status::CONFIRMED, m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash(), 1);
-        it->second.m_confirm = confirm;
+        it->second.SetMerkleBranch(::ChainActive().Tip()->GetBlockHash(), 1);
 
         std::vector<COutPoint> vecOutpoints;
         size_t n;
@@ -877,13 +639,13 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
         }
     };
 
-    // First run the tests with only one input containing 100k duffs
+    // First run the tests with only one input containing 100k olegs
     {
-        coinControl = CCoinControl();
+        coinControl.SetNull();
         coinControl.Select(GetCoins({{100000, false}})[0]);
 
         // Start with fallback feerate
-        runTest(1, fallbackFee, {
+        runTest(1, DEFAULT_FALLBACK_FEE, {
             {0, {true, ChangeTest::ChangeExpected}},
             {1, {true, ChangeTest::ChangeExpected}},
             {2, {true, ChangeTest::ChangeExpected}},
@@ -900,7 +662,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
             {13, {false, ChangeTest::Skip}}
         });
         // Now with 100x fallback feerate
-        runTest(2, fallbackFee * 100, {
+        runTest(2, DEFAULT_FALLBACK_FEE * 100, {
             {0, {true, ChangeTest::ChangeExpected}},
             {1, {false, ChangeTest::Skip}},
             {2, {true, ChangeTest::ChangeExpected}},
@@ -919,14 +681,14 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
     }
     // Now use 4 different inputs with a total of 100k duff
     {
-        coinControl = CCoinControl();
+        coinControl.SetNull();
         auto setCoins = GetCoins({{1000, false}, {5000, false}, {10000, false}, {84000, false}});
         for (auto coin : setCoins) {
             coinControl.Select(coin);
         }
 
         // Start with fallback feerate
-        runTest(3, fallbackFee, {
+        runTest(3, DEFAULT_FALLBACK_FEE, {
             {0, {true, ChangeTest::ChangeExpected}},
             {1, {false, ChangeTest::Skip}},
             {2, {true, ChangeTest::ChangeExpected}},
@@ -943,7 +705,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
             {13, {false, ChangeTest::Skip}}
         });
         // Now with 100x fallback feerate
-        runTest(4, fallbackFee * 100, {
+        runTest(4, DEFAULT_FALLBACK_FEE * 100, {
             {0, {true, ChangeTest::ChangeExpected}},
             {1, {false, ChangeTest::Skip}},
             {2, {true, ChangeTest::ChangeExpected}},
@@ -963,7 +725,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
 
     // Last use 10 equal inputs with a total of 100k duff
     {
-        coinControl = CCoinControl();
+        coinControl.SetNull();
         auto setCoins = GetCoins({{10000, false}, {10000, false}, {10000, false}, {10000, false}, {10000, false},
                                   {10000, false}, {10000, false}, {10000, false}, {10000, false}, {10000, false}});
 
@@ -972,7 +734,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
         }
 
         // Start with fallback feerate
-        runTest(5, fallbackFee, {
+        runTest(5, DEFAULT_FALLBACK_FEE, {
             {0, {true, ChangeTest::ChangeExpected}},
             {1, {false, ChangeTest::Skip}},
             {2, {true, ChangeTest::ChangeExpected}},
@@ -989,7 +751,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
             {13, {false, ChangeTest::Skip}}
         });
         // Now with 100x fallback feerate
-        runTest(6, fallbackFee * 100, {
+        runTest(6, DEFAULT_FALLBACK_FEE * 100, {
             {0, {false, ChangeTest::Skip}},
             {1, {false, ChangeTest::Skip}},
             {2, {false, ChangeTest::Skip}},
@@ -1009,16 +771,16 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
     // Some tests without selected coins in coinControl, let the wallet decide
     // which inputs to use
     {
-        coinControl = CCoinControl();
-        coinControl.m_feerate = CFeeRate(fallbackFee);
+        coinControl.SetNull();
         auto setCoins = GetCoins({{1000, false}, {1000, false}, {1000, false}, {1000, false}, {1000, false},
                                   {1100, false}, {1200, false}, {1300, false}, {1400, false}, {1500, false},
                                   {3000, false}, {3000, false}, {2000, false}, {2000, false}, {1000, false}});
         // Lock all other coins which were already in the wallet
         std::vector<COutput> vecAvailable;
         {
+            auto locked_chain = wallet->chain().lock();
             LOCK(wallet->cs_wallet);
-            wallet->AvailableCoins(vecAvailable);
+            wallet->AvailableCoins(*locked_chain, vecAvailable);
             for (auto coin : vecAvailable) {
                 auto out = COutPoint(coin.tx->GetHash(), coin.i);
                 if (std::find(setCoins.begin(), setCoins.end(), out) == setCoins.end()) {
@@ -1058,8 +820,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
     }
     // Test if the change output ends up at the requested position
     {
-        coinControl = CCoinControl();
-        coinControl.m_feerate = CFeeRate(fallbackFee);
+        coinControl.SetNull();
         coinControl.Select(GetCoins({{100000, false}})[0]);
 
         BOOST_CHECK(CreateTransaction({{25000, false}, {25000, false}, {25000, false}}, {}, 0, true, ChangeTest::ChangeExpected));
@@ -1069,15 +830,15 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
     }
     // Test error cases
     {
-        coinControl = CCoinControl();
-        coinControl.m_feerate = CFeeRate(fallbackFee);
+        coinControl.SetNull();
         // First try to send something without any coins available
         {
             // Lock all other coins
             std::vector<COutput> vecAvailable;
             {
+                auto locked_chain = wallet->chain().lock();
                 LOCK(wallet->cs_wallet);
-                wallet->AvailableCoins(vecAvailable);
+                wallet->AvailableCoins(*locked_chain, vecAvailable);
                 for (auto coin : vecAvailable) {
                     wallet->LockCoin(COutPoint(coin.tx->GetHash(), coin.i));
                 }
@@ -1106,8 +867,7 @@ BOOST_FIXTURE_TEST_CASE(CreateTransactionTest, CreateTransactionTestSetup)
             }
         };
 
-        coinControl = CCoinControl();
-        coinControl.m_feerate = CFeeRate(fallbackFee);
+        coinControl.SetNull();
         coinControl.Select(GetCoins({{100 * COIN, false}})[0]);
 
         BOOST_CHECK(CreateTransaction({{-5000, false}}, strAmountNotNegative, false));
@@ -1155,25 +915,24 @@ BOOST_FIXTURE_TEST_CASE(select_coins_grouped_by_addresses, ListCoinsTestingSetup
     CTransactionRef tx2;
     CAmount fee;
     int changePos = -1;
-    bilingual_str error;
+    std::string error;
     CCoinControl dummy;
-    FeeCalculation fee_calc_out;
-    BOOST_CHECK(wallet->CreateTransaction({CRecipient{GetScriptForRawPubKey({}), 2 * COIN, true /* subtract fee */}},
-                                        tx1, fee, changePos, error, dummy, fee_calc_out));
-    BOOST_CHECK(wallet->CreateTransaction({CRecipient{GetScriptForRawPubKey({}), 1 * COIN, true /* subtract fee */}},
-                                        tx2, fee, changePos, error, dummy, fee_calc_out));
-    wallet->CommitTransaction(tx1, {}, {});
+    {
+        auto locked_chain = wallet->chain().lock();
+        BOOST_CHECK(wallet->CreateTransaction(*locked_chain, {CRecipient{GetScriptForRawPubKey({}), 2 * COIN, true /* subtract fee */}},
+                                            tx1, fee, changePos, error, dummy));
+        BOOST_CHECK(wallet->CreateTransaction(*locked_chain, {CRecipient{GetScriptForRawPubKey({}), 1 * COIN, true /* subtract fee */}},
+                                            tx2, fee, changePos, error, dummy));
+    }
+    CValidationState state;
+    BOOST_CHECK(wallet->CommitTransaction(tx1, {}, {}, state));
     BOOST_CHECK_EQUAL(wallet->GetAvailableBalance(), 0);
     CreateAndProcessBlock({CMutableTransaction(*tx2)}, GetScriptForRawPubKey({}));
-    {
-        LOCK(wallet->cs_wallet);
-        wallet->SetLastBlockProcessed(m_node.chainman->ActiveChain().Height(), m_node.chainman->ActiveChain().Tip()->GetBlockHash());
-    }
 
     // Reveal the mined tx, it should conflict with the one we have in the wallet already.
-    WalletRescanReserver reserver(*wallet);
+    WalletRescanReserver reserver(wallet.get());
     reserver.reserve();
-    auto result = wallet->ScanForWalletTransactions(m_node.chainman->ActiveChain().Genesis()->GetBlockHash(), 0 /* start_height */, {} /* max_height */, reserver, false /* update */);
+    auto result = wallet->ScanForWalletTransactions(::ChainActive().Genesis()->GetBlockHash(), {}, reserver, false);
     BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::SUCCESS);
     {
         LOCK(wallet->cs_wallet);
@@ -1198,236 +957,13 @@ BOOST_FIXTURE_TEST_CASE(select_coins_grouped_by_addresses, ListCoinsTestingSetup
 
 BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
 {
-    NodeContext node;
-    node.fee_estimator = std::make_unique<CBlockPolicyEstimator>();
-    node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get());
-    auto chain = interfaces::MakeChain(node);
-    std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(chain.get(), m_node.coinjoin_loader.get(), "", CreateDummyWalletDatabase());
-    wallet->SetupLegacyScriptPubKeyMan();
+    auto chain = interfaces::MakeChain();
+    std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(*chain, WalletLocation(), WalletDatabase::CreateDummy());
     wallet->SetMinVersion(FEATURE_LATEST);
     wallet->SetWalletFlag(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
     BOOST_CHECK(!wallet->TopUpKeyPool(1000));
-    CTxDestination dest;
-    bilingual_str error;
-    BOOST_CHECK(!wallet->GetNewDestination("", dest, error));
-}
-
-//! Test CWallet::Create() and its behavior handling potential race
-//! conditions if it's called the same time an incoming transaction shows up in
-//! the mempool or a new block.
-//!
-//! It isn't possible to verify there aren't race condition in every case, so
-//! this test just checks two specific cases and ensures that timing of
-//! notifications in these cases doesn't prevent the wallet from detecting
-//! transactions.
-//!
-//! In the first case, block and mempool transactions are created before the
-//! wallet is loaded, but notifications about these transactions are delayed
-//! until after it is loaded. The notifications are superfluous in this case, so
-//! the test verifies the transactions are detected before they arrive.
-//!
-//! In the second case, block and mempool transactions are created after the
-//! wallet rescan and notifications are immediately synced, to verify the wallet
-//! must already have a handler in place for them, and there's no gap after
-//! rescanning where new transactions in new blocks could be lost.
-BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
-{
-    gArgs.ForceSetArg("-unsafesqlitesync", "1");
-    // Create new wallet with known key and unload it.
-    auto wallet = TestLoadWallet(m_node.chain.get(), m_node.coinjoin_loader.get());
-    CKey key;
-    key.MakeNewKey(true);
-    AddKey(*wallet, key);
-    TestUnloadWallet(std::move(wallet));
-
-
-    // Add log hook to detect AddToWallet events from rescans, blockConnected,
-    // and transactionAddedToMempool notifications
-    int addtx_count = 0;
-    DebugLogHelper addtx_counter("[default wallet] AddToWallet", [&](const std::string* s) {
-        if (s) ++addtx_count;
-        return false;
-    });
-
-
-    bool rescan_completed = false;
-    DebugLogHelper rescan_check("[default wallet] Rescan completed", [&](const std::string* s) {
-        if (s) rescan_completed = true;
-        return false;
-    });
-
-
-    // Block the queue to prevent the wallet receiving blockConnected and
-    // transactionAddedToMempool notifications, and create block and mempool
-    // transactions paying to the wallet
-    std::promise<void> promise;
-    CallFunctionInValidationInterfaceQueue([&promise] {
-        promise.get_future().wait();
-    });
-    bilingual_str error;
-    m_coinbase_txns.push_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
-    auto block_tx = TestSimpleSpend(*m_coinbase_txns[0], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
-    m_coinbase_txns.push_back(CreateAndProcessBlock({block_tx}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
-    auto mempool_tx = TestSimpleSpend(*m_coinbase_txns[1], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
-    BOOST_CHECK(m_node.chain->broadcastTransaction(MakeTransactionRef(mempool_tx), DEFAULT_TRANSACTION_MAXFEE, false, error));
-
-
-    // Reload wallet and make sure new transactions are detected despite events
-    // being blocked
-    wallet = TestLoadWallet(m_node.chain.get(), m_node.coinjoin_loader.get());
-    BOOST_CHECK(rescan_completed);
-    BOOST_CHECK_EQUAL(addtx_count, 2);
-    {
-        LOCK(wallet->cs_wallet);
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_tx.GetHash()), 1U);
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(mempool_tx.GetHash()), 1U);
-    }
-
-
-    // Unblock notification queue and make sure stale blockConnected and
-    // transactionAddedToMempool events are processed
-    promise.set_value();
-    SyncWithValidationInterfaceQueue();
-    BOOST_CHECK_EQUAL(addtx_count, 4);
-
-    TestUnloadWallet(std::move(wallet));
-
-
-    // Load wallet again, this time creating new block and mempool transactions
-    // paying to the wallet as the wallet finishes loading and syncing the
-    // queue so the events have to be handled immediately. Releasing the wallet
-    // lock during the sync is a little artificial but is needed to avoid a
-    // deadlock during the sync and simulates a new block notification happening
-    // as soon as possible.
-    addtx_count = 0;
-    auto handler = HandleLoadWallet([&](std::unique_ptr<interfaces::Wallet> wallet) {
-            BOOST_CHECK(rescan_completed);
-            m_coinbase_txns.push_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
-            block_tx = TestSimpleSpend(*m_coinbase_txns[2], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
-            m_coinbase_txns.push_back(CreateAndProcessBlock({block_tx}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
-            mempool_tx = TestSimpleSpend(*m_coinbase_txns[3], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
-            BOOST_CHECK(m_node.chain->broadcastTransaction(MakeTransactionRef(mempool_tx), DEFAULT_TRANSACTION_MAXFEE, false, error));
-            SyncWithValidationInterfaceQueue();
-        });
-    wallet = TestLoadWallet(m_node.chain.get(), m_node.coinjoin_loader.get());
-    BOOST_CHECK_EQUAL(addtx_count, 4);
-    {
-        LOCK(wallet->cs_wallet);
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_tx.GetHash()), 1U);
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(mempool_tx.GetHash()), 1U);
-    }
-
-    TestUnloadWallet(std::move(wallet));
-}
-
-// Explicit calculation which is used to test the wallet constant
-// We get the same virtual size due to rounding(weight/4) for both use_max_sig values
-static size_t CalculateNestedKeyhashInputSize(bool use_max_sig)
-{
-    // Generate ephemeral valid pubkey
-    CKey key;
-    key.MakeNewKey(true);
-    CPubKey pubkey = key.GetPubKey();
-
-    // Generate pubkey hash
-    uint160 key_hash(Hash160(pubkey));
-
-    // Create inner-script to enter into keystore. Key hash can't be 0...
-    CScript inner_script = CScript() << OP_0 << std::vector<unsigned char>(key_hash.begin(), key_hash.end());
-
-    // Create outer P2SH script for the output
-    CScript script_pubkey = GetScriptForRawPubKey(pubkey);
-
-    NodeContext node;
-    node.fee_estimator = std::make_unique<CBlockPolicyEstimator>();
-    node.mempool = std::make_unique<CTxMemPool>(node.fee_estimator.get());
-    auto chain = interfaces::MakeChain(node);
-    CWallet wallet(chain.get(), /*coinjoin_loader=*/ nullptr, "", CreateDummyWalletDatabase());
-    AddKey(wallet, key);
-    auto spk_man = wallet.GetLegacyScriptPubKeyMan();
-    spk_man->AddCScript(inner_script);
-
-    // Fill in dummy signatures for fee calculation.
-    SignatureData sig_data;
-
-    if (!ProduceSignature(*spk_man, use_max_sig ? DUMMY_MAXIMUM_SIGNATURE_CREATOR : DUMMY_SIGNATURE_CREATOR, script_pubkey, sig_data)) {
-        // We're hand-feeding it correct arguments; shouldn't happen
-        assert(false);
-    }
-
-    CTxIn tx_in;
-    UpdateInput(tx_in, sig_data);
-    return ::GetSerializeSize(tx_in, PROTOCOL_VERSION);
-}
-
-static constexpr size_t DUMMY_NESTED_P2PKH_INPUT_SIZE = 113;
-BOOST_FIXTURE_TEST_CASE(dummy_input_size_test, TestChain100Setup)
-{
-    BOOST_CHECK_EQUAL(CalculateNestedKeyhashInputSize(false), DUMMY_NESTED_P2PKH_INPUT_SIZE);
-    BOOST_CHECK_EQUAL(CalculateNestedKeyhashInputSize(true), DUMMY_NESTED_P2PKH_INPUT_SIZE + 1);
-}
-
-bool malformed_descriptor(std::ios_base::failure e)
-{
-    std::string s(e.what());
-    return s.find("Missing checksum") != std::string::npos;
-}
-
-BOOST_FIXTURE_TEST_CASE(wallet_descriptor_test, BasicTestingSetup)
-{
-    std::vector<unsigned char> malformed_record;
-    CVectorWriter vw(0, 0, malformed_record, 0);
-    vw << std::string("notadescriptor");
-    vw << (uint64_t)0;
-    vw << (int32_t)0;
-    vw << (int32_t)0;
-    vw << (int32_t)1;
-
-    SpanReader vr{0, 0, malformed_record, 0};
-    WalletDescriptor w_desc;
-    BOOST_CHECK_EXCEPTION(vr >> w_desc, std::ios_base::failure, malformed_descriptor);
-}
-
-BOOST_FIXTURE_TEST_CASE(CreateWalletWithoutChain, BasicTestingSetup)
-{
-    // TODO: FIX FIX FIX - coinjoin_loader is null heere!
-    auto wallet = TestLoadWallet(nullptr, nullptr);
-    BOOST_CHECK(wallet);
-    UnloadWallet(std::move(wallet));
-}
-
-BOOST_FIXTURE_TEST_CASE(ZapSelectTx, TestChain100Setup)
-{
-    gArgs.ForceSetArg("-unsafesqlitesync", "1");
-    auto chain = interfaces::MakeChain(m_node);
-    auto wallet = TestLoadWallet(m_node.chain.get(), m_node.coinjoin_loader.get());
-    CKey key;
-    key.MakeNewKey(true);
-    AddKey(*wallet, key);
-
-    bilingual_str error;
-    m_coinbase_txns.push_back(CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey())).vtx[0]);
-    auto block_tx = TestSimpleSpend(*m_coinbase_txns[0], 0, coinbaseKey, GetScriptForRawPubKey(key.GetPubKey()));
-    CreateAndProcessBlock({block_tx}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
-
-    SyncWithValidationInterfaceQueue();
-
-    {
-        auto block_hash = block_tx.GetHash();
-        auto prev_hash = m_coinbase_txns[0]->GetHash();
-
-        LOCK(wallet->cs_wallet);
-        BOOST_CHECK(wallet->HasWalletSpend(prev_hash));
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_hash), 1u);
-
-        std::vector<uint256> vHashIn{ block_hash }, vHashOut;
-        BOOST_CHECK_EQUAL(wallet->ZapSelectTx(vHashIn, vHashOut), DBErrors::LOAD_OK);
-
-        BOOST_CHECK(!wallet->HasWalletSpend(prev_hash));
-        BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_hash), 0u);
-    }
-
-    TestUnloadWallet(std::move(wallet));
+    CPubKey pubkey;
+    BOOST_CHECK(!wallet->GetKeyFromPool(pubkey, false));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -1,10 +1,10 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2022 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
 #include <qt/addressbookpage.h>
@@ -58,7 +58,7 @@ protected:
 };
 
 AddressBookPage::AddressBookPage(Mode _mode, Tabs _tab, QWidget* parent) :
-    QDialog(parent, GUIUtil::dialog_flags),
+    QDialog(parent),
     ui(new Ui::AddressBookPage),
     model(nullptr),
     mode(_mode),
@@ -67,9 +67,6 @@ AddressBookPage::AddressBookPage(Mode _mode, Tabs _tab, QWidget* parent) :
     ui->setupUi(this);
 
     ui->showAddressQRCode->setIcon(QIcon());
-#ifndef USE_QRCODE
-    ui->showAddressQRCode->setEnabled(false);
-#endif
 
     switch(mode)
     {
@@ -96,39 +93,46 @@ AddressBookPage::AddressBookPage(Mode _mode, Tabs _tab, QWidget* parent) :
     switch(tab)
     {
     case SendingTab:
-        ui->labelExplanation->setText(tr("These are your Dash addresses for sending payments. Always check the amount and the receiving address before sending coins."));
+        ui->labelExplanation->setText(tr("These are your ETXO addresses for sending payments. Always check the amount and the receiving address before sending coins."));
         ui->deleteAddress->setVisible(true);
         ui->newAddress->setVisible(true);
         break;
     case ReceivingTab:
-        ui->labelExplanation->setText(tr("These are your Dash addresses for receiving payments. Use the 'Create new receiving address' button in the receive tab to create new addresses."));
+        ui->labelExplanation->setText(tr("These are your ETXO addresses for receiving payments. Use the 'Create new receiving address' button in the receive tab to create new addresses."));
         ui->deleteAddress->setVisible(false);
         ui->newAddress->setVisible(false);
         break;
     }
 
+    // Context menu actions
+    QAction *copyAddressAction = new QAction(tr("&Copy Address"), this);
+    QAction *copyLabelAction = new QAction(tr("Copy &Label"), this);
+    QAction *editAction = new QAction(tr("&Edit"), this);
+    QAction *showAddressQRCodeAction = new QAction(tr("&Show address QR code"), this);
+    deleteAction = new QAction(ui->deleteAddress->text(), this);
+
     // Build context menu
     contextMenu = new QMenu(this);
-    contextMenu->addAction(tr("&Copy Address"), this, &AddressBookPage::on_copyAddress_clicked);
-    contextMenu->addAction(tr("Copy &Label"), this, &AddressBookPage::onCopyLabelAction);
-    contextMenu->addAction(tr("&Edit"), this, &AddressBookPage::onEditAction);
-    [[maybe_unused]] QAction* qrAction = contextMenu->addAction(tr("Show address &QR code"), this, &AddressBookPage::on_showAddressQRCode_clicked);
-#ifndef USE_QRCODE
-    qrAction->setEnabled(false);
-#endif
+    contextMenu->addAction(copyAddressAction);
+    contextMenu->addAction(copyLabelAction);
+    contextMenu->addAction(editAction);
+    if(tab == SendingTab)
+        contextMenu->addAction(deleteAction);
+    contextMenu->addSeparator();
+    contextMenu->addAction(showAddressQRCodeAction);
 
-    if (tab == SendingTab) {
-        contextMenu->addAction(tr("&Delete"), this, &AddressBookPage::on_deleteAddress_clicked);
-    }
-
+    // Connect signals for context menu actions
+    connect(copyAddressAction, &QAction::triggered, this, &AddressBookPage::on_copyAddress_clicked);
+    connect(copyLabelAction, &QAction::triggered, this, &AddressBookPage::onCopyLabelAction);
+    connect(editAction, &QAction::triggered, this, &AddressBookPage::onEditAction);
+    connect(deleteAction, &QAction::triggered, this, &AddressBookPage::on_deleteAddress_clicked);
+    connect(showAddressQRCodeAction, &QAction::triggered, this, &AddressBookPage::on_showAddressQRCode_clicked);
     connect(ui->tableView, &QWidget::customContextMenuRequested, this, &AddressBookPage::contextualMenu);
     connect(ui->closeButton, &QPushButton::clicked, this, &QDialog::accept);
 
     GUIUtil::updateFonts();
 
     GUIUtil::disableMacFocusRect(this);
-
-    GUIUtil::handleCloseWindowShortcut(this);
 }
 
 AddressBookPage::~AddressBookPage()
@@ -236,7 +240,7 @@ void AddressBookPage::on_showAddressQRCode_clicked()
     QRDialog* dialog = new QRDialog(this);
 
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setInfo(tr("QR code"), "dash:"+strAddress, "", strAddress);
+    dialog->setInfo(tr("QR code"), "ethanexo:"+strAddress, "", strAddress);
     dialog->show();
 }
 
@@ -255,25 +259,23 @@ void AddressBookPage::selectionChanged()
             // In sending tab, allow deletion of selection
             ui->deleteAddress->setEnabled(true);
             ui->deleteAddress->setVisible(true);
+            deleteAction->setEnabled(true);
             break;
         case ReceivingTab:
             // Deleting receiving addresses, however, is not allowed
             ui->deleteAddress->setEnabled(false);
             ui->deleteAddress->setVisible(false);
+            deleteAction->setEnabled(false);
             break;
         }
         ui->copyAddress->setEnabled(true);
-#ifdef USE_QRCODE
         ui->showAddressQRCode->setEnabled(true);
-#endif
     }
     else
     {
         ui->deleteAddress->setEnabled(false);
         ui->copyAddress->setEnabled(false);
-#ifdef USE_QRCODE
         ui->showAddressQRCode->setEnabled(false);
-#endif
     }
 }
 
@@ -305,9 +307,7 @@ void AddressBookPage::on_exportButton_clicked()
     // CSV is currently the only supported format
     QString filename = GUIUtil::getSaveFileName(this,
         tr("Export Address List"), QString(),
-        /*: Expanded name of the CSV file format.
-            See: https://en.wikipedia.org/wiki/Comma-separated_values. */
-        tr("Comma separated file") + QLatin1String(" (*.csv)"), nullptr);
+        tr("Comma separated file (*.csv)"), nullptr);
 
     if (filename.isNull())
         return;
@@ -321,8 +321,6 @@ void AddressBookPage::on_exportButton_clicked()
 
     if(!writer.write()) {
         QMessageBox::critical(this, tr("Exporting Failed"),
-            /*: An error message. %1 is a stand-in argument for the name
-                of the file we attempted to save to. */
             tr("There was an error trying to save the address list to %1. Please try again.").arg(filename));
     }
 }

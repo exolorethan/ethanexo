@@ -1,10 +1,10 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
 #include <qt/splashscreen.h>
@@ -17,11 +17,8 @@
 #include <interfaces/wallet.h>
 #include <qt/guiutil.h>
 #include <qt/networkstyle.h>
-#include <qt/walletmodel.h>
+#include <ui_interface.h>
 #include <util/system.h>
-#include <util/translation.h>
-
-#include <functional>
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -29,8 +26,8 @@
 #include <QScreen>
 
 
-SplashScreen::SplashScreen(const NetworkStyle *networkStyle) :
-    QWidget(), curAlignment(0)
+SplashScreen::SplashScreen(interfaces::Node& node, Qt::WindowFlags f, const NetworkStyle *networkStyle) :
+    QWidget(nullptr, f), curAlignment(0), m_node(node)
 {
 
     // transparent background
@@ -54,7 +51,7 @@ SplashScreen::SplashScreen(const NetworkStyle *networkStyle) :
     float scale = qApp->devicePixelRatio();
 
     // define text to place
-    QString titleText       = PACKAGE_NAME;
+    QString titleText       = tr(PACKAGE_NAME);
     QString versionText = QString::fromStdString(FormatFullVersion()).remove(0, 1);
     QString titleAddText    = networkStyle->getTitleAddText();
 
@@ -63,17 +60,6 @@ SplashScreen::SplashScreen(const NetworkStyle *networkStyle) :
 
     QPixmap pixmapLogo = networkStyle->getSplashImage();
     pixmapLogo.setDevicePixelRatio(scale);
-
-    // Adjust logo color based on the current theme
-    QImage imgLogo = pixmapLogo.toImage().convertToFormat(QImage::Format_ARGB32);
-    QColor logoColor = GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BLUE);
-    for (int x = 0; x < imgLogo.width(); ++x) {
-        for (int y = 0; y < imgLogo.height(); ++y) {
-            const QRgb rgb = imgLogo.pixel(x, y);
-            imgLogo.setPixel(x, y, qRgba(logoColor.red(), logoColor.green(), logoColor.blue(), qAlpha(rgb)));
-        }
-    }
-    pixmapLogo.convertFromImage(imgLogo);
 
     pixmap = QPixmap(width * scale, height * scale);
     pixmap.setDevicePixelRatio(scale);
@@ -132,35 +118,20 @@ SplashScreen::SplashScreen(const NetworkStyle *networkStyle) :
     setFixedSize(r.size());
     move(QGuiApplication::primaryScreen()->geometry().center() - r.center());
 
+    subscribeToCoreSignals();
     installEventFilter(this);
-
-    GUIUtil::handleCloseWindowShortcut(this);
 }
 
 SplashScreen::~SplashScreen()
 {
-    if (m_node) unsubscribeFromCoreSignals();
-}
-
-void SplashScreen::setNode(interfaces::Node& node)
-{
-    assert(!m_node);
-    m_node = &node;
-    subscribeToCoreSignals();
-    if (m_shutdown) m_node->startShutdown();
-}
-
-void SplashScreen::shutdown()
-{
-    m_shutdown = true;
-    if (m_node) m_node->startShutdown();
+    unsubscribeFromCoreSignals();
 }
 
 bool SplashScreen::eventFilter(QObject * obj, QEvent * ev) {
     if (ev->type() == QEvent::KeyPress) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(ev);
         if (keyEvent->key() == Qt::Key_Q) {
-            shutdown();
+            m_node.startShutdown();
         }
     }
     return QObject::eventFilter(obj, ev);
@@ -189,26 +160,25 @@ static void InitMessage(SplashScreen *splash, const std::string &message)
 static void ShowProgress(SplashScreen *splash, const std::string &title, int nProgress, bool resume_possible)
 {
     InitMessage(splash, title + std::string("\n") +
-            (resume_possible ? SplashScreen::tr("(press q to shutdown and continue later)").toStdString()
-                                : SplashScreen::tr("press q to shutdown").toStdString()) +
+            (resume_possible ? _("(press q to shutdown and continue later)")
+                                : _("press q to shutdown")) +
             strprintf("\n%d", nProgress) + "%");
 }
+#ifdef ENABLE_WALLET
+void SplashScreen::ConnectWallet(std::unique_ptr<interfaces::Wallet> wallet)
+{
+    m_connected_wallet_handlers.emplace_back(wallet->handleShowProgress(std::bind(ShowProgress, this, std::placeholders::_1, std::placeholders::_2, false)));
+    m_connected_wallets.emplace_back(std::move(wallet));
+}
+#endif
 
 void SplashScreen::subscribeToCoreSignals()
 {
     // Connect signals to client
-    m_handler_init_message = m_node->handleInitMessage(std::bind(InitMessage, this, std::placeholders::_1));
-    m_handler_show_progress = m_node->handleShowProgress(std::bind(ShowProgress, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-}
-
-void SplashScreen::handleLoadWallet()
-{
+    m_handler_init_message = m_node.handleInitMessage(std::bind(InitMessage, this, std::placeholders::_1));
+    m_handler_show_progress = m_node.handleShowProgress(std::bind(ShowProgress, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 #ifdef ENABLE_WALLET
-    if (!WalletModel::isWalletEnabled()) return;
-    m_handler_load_wallet = m_node->walletLoader().handleLoadWallet([this](std::unique_ptr<interfaces::Wallet> wallet) {
-        m_connected_wallet_handlers.emplace_back(wallet->handleShowProgress(std::bind(ShowProgress, this, std::placeholders::_1, std::placeholders::_2, false)));
-        m_connected_wallets.emplace_back(std::move(wallet));
-    });
+    m_handler_load_wallet = m_node.handleLoadWallet([this](std::unique_ptr<interfaces::Wallet> wallet) { ConnectWallet(std::move(wallet)); });
 #endif
 }
 
@@ -218,9 +188,7 @@ void SplashScreen::unsubscribeFromCoreSignals()
     m_handler_init_message->disconnect();
     m_handler_show_progress->disconnect();
 #ifdef ENABLE_WALLET
-    if (m_handler_load_wallet != nullptr) {
-        m_handler_load_wallet->disconnect();
-    }
+    m_handler_load_wallet->disconnect();
 #endif // ENABLE_WALLET
     for (const auto& handler : m_connected_wallet_handlers) {
         handler->disconnect();
@@ -251,6 +219,6 @@ void SplashScreen::paintEvent(QPaintEvent *event)
 
 void SplashScreen::closeEvent(QCloseEvent *event)
 {
-    shutdown(); // allows an "emergency" shutdown during startup
+    m_node.startShutdown(); // allows an "emergency" shutdown during startup
     event->ignore();
 }

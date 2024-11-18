@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# Copyright (c) 2018-2024 The Dash Core developers
+# Copyright (c) 2018-2021 The Dash Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-from test_framework.test_framework import DashTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.test_framework import EthanexoTestFramework
+from test_framework.util import assert_equal, assert_raises_rpc_error, isolate_node, reconnect_isolated_node
 
 '''
 p2p_instantsend.py
@@ -12,26 +12,18 @@ p2p_instantsend.py
 Tests InstantSend functionality (prevent doublespend for unconfirmed transactions)
 '''
 
-class InstantSendTest(DashTestFramework):
+class InstantSendTest(EthanexoTestFramework):
     def set_test_params(self):
-        self.set_dash_test_params(8, 4)
+        self.set_ethanexo_test_params(7, 3, fast_dip3_enforcement=True)
         # set sender,  receiver,  isolated nodes
         self.isolated_idx = 1
         self.receiver_idx = 2
         self.sender_idx = 3
 
     def run_test(self):
-        self.nodes[0].sporkupdate("SPORK_17_QUORUM_DKG_ENABLED", 0)
+        self.nodes[0].spork("SPORK_17_QUORUM_DKG_ENABLED", 0)
         self.wait_for_sporks_same()
-        self.activate_v19(expected_activation_height=900)
-        self.log.info("Activated v19 at height:" + str(self.nodes[0].getblockcount()))
-        self.move_to_next_cycle()
-        self.log.info("Cycle H height:" + str(self.nodes[0].getblockcount()))
-        self.move_to_next_cycle()
-        self.log.info("Cycle H+C height:" + str(self.nodes[0].getblockcount()))
-        self.move_to_next_cycle()
-        self.log.info("Cycle H+2C height:" + str(self.nodes[0].getblockcount()))
-        (quorum_info_i_0, quorum_info_i_1) = self.mine_cycle_quorum(llmq_type_name='llmq_test_dip0024', llmq_type=103)
+        self.mine_quorum()
 
         self.test_mempool_doublespend()
         self.test_block_doublespend()
@@ -43,16 +35,15 @@ class InstantSendTest(DashTestFramework):
 
         # feed the sender with some balance
         sender_addr = sender.getnewaddress()
-        is_id = self.nodes[0].sendtoaddress(sender_addr, 1)
-        for node in self.nodes:
-            self.wait_for_instantlock(is_id, node)
+        self.nodes[0].sendtoaddress(sender_addr, 1)
         self.bump_mocktime(1)
-        self.generate(self.nodes[0], 2)
+        self.nodes[0].generate(2)
+        self.sync_all()
 
         # create doublespending transaction, but don't relay it
         dblspnd_tx = self.create_raw_tx(sender, isolated, 0.5, 1, 100)
         # isolate one node from network
-        self.isolate_node(self.isolated_idx)
+        isolate_node(isolated)
         # instantsend to receiver
         receiver_addr = receiver.getnewaddress()
         is_id = sender.sendtoaddress(receiver_addr, 0.9)
@@ -63,23 +54,19 @@ class InstantSendTest(DashTestFramework):
         for node in connected_nodes:
             self.wait_for_instantlock(is_id, node)
         # send doublespend transaction to isolated node
-        dblspnd_txid = isolated.sendrawtransaction(dblspnd_tx['hex'])
+        isolated.sendrawtransaction(dblspnd_tx['hex'])
         # generate block on isolated node with doublespend transaction
-        self.bump_mocktime(599)
-        wrong_early_block = self.generate(isolated, 1, sync_fun=self.no_op)[0]
-        assert not "confirmation" in isolated.getrawtransaction(dblspnd_txid, 1)
-        isolated.invalidateblock(wrong_early_block)
         self.bump_mocktime(1)
-        wrong_block = self.generate(isolated, 1, sync_fun=self.no_op)[0]
-        assert_equal(isolated.getrawtransaction(dblspnd_txid, 1)["confirmations"], 1)
+        isolated.generate(1)
+        wrong_block = isolated.getbestblockhash()
         # connect isolated block to network
-        self.reconnect_isolated_node(self.isolated_idx, 0)
+        reconnect_isolated_node(isolated, 0)
         # check doublespend block is rejected by other nodes
         timeout = 10
-        for idx, node in enumerate(self.nodes):
-            if idx == self.isolated_idx:
+        for i in range(0, self.num_nodes):
+            if i == self.isolated_idx:
                 continue
-            res = node.waitforblock(wrong_block, timeout)
+            res = self.nodes[i].waitforblock(wrong_block, timeout)
             assert res['hash'] != wrong_block
             # wait for long time only for first node
             timeout = 1
@@ -91,7 +78,8 @@ class InstantSendTest(DashTestFramework):
         self.bump_mocktime(1)
         # make sure the above TX is on node0
         self.sync_mempools([n for n in self.nodes if n is not isolated])
-        self.generate(self.nodes[0], 2)
+        self.nodes[0].generate(2)
+        self.sync_all()
 
     def test_mempool_doublespend(self):
         sender = self.nodes[self.sender_idx]
@@ -102,22 +90,21 @@ class InstantSendTest(DashTestFramework):
 
         # feed the sender with some balance
         sender_addr = sender.getnewaddress()
-        is_id = self.nodes[0].sendtoaddress(sender_addr, 1)
-        for node in self.nodes:
-            self.wait_for_instantlock(is_id, node)
+        self.nodes[0].sendtoaddress(sender_addr, 1)
         self.bump_mocktime(1)
-        self.generate(self.nodes[0], 2)
+        self.nodes[0].generate(2)
+        self.sync_all()
 
         # create doublespending transaction, but don't relay it
         dblspnd_tx = self.create_raw_tx(sender, isolated, 0.5, 1, 100)
         # isolate one node from network
-        self.isolate_node(self.isolated_idx)
+        isolate_node(isolated)
         # send doublespend transaction to isolated node
         dblspnd_txid = isolated.sendrawtransaction(dblspnd_tx['hex'])
         assert dblspnd_txid in set(isolated.getrawmempool())
         # let isolated node rejoin the network
         # The previously isolated node should NOT relay the doublespending TX
-        self.reconnect_isolated_node(self.isolated_idx, 0)
+        reconnect_isolated_node(isolated, 0)
         for node in connected_nodes:
             assert_raises_rpc_error(-5, "No such mempool or blockchain transaction", node.getrawtransaction, dblspnd_txid)
         # Instantsend to receiver. The previously isolated node won't accept the tx but it should
@@ -138,7 +125,8 @@ class InstantSendTest(DashTestFramework):
         assert_equal(receiver.getwalletinfo()["balance"], 0)
         # mine more blocks
         self.bump_mocktime(1)
-        self.generate(self.nodes[0], 2)
+        self.nodes[0].generate(2)
+        self.sync_all()
 
 if __name__ == '__main__':
     InstantSendTest().main()

@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,37 +6,19 @@
 #define BITCOIN_COINJOIN_SERVER_H
 
 #include <coinjoin/coinjoin.h>
+#include <net.h>
 
-#include <protocol.h>
-
-class CActiveMasternodeManager;
 class CCoinJoinServer;
-class CDataStream;
-class CDeterministicMNManager;
-class CDSTXManager;
-class ChainstateManager;
-class CMasternodeMetaMan;
-class CNode;
-class CTxMemPool;
-class PeerManager;
-
 class UniValue;
+
+// The main object for accessing mixing
+extern CCoinJoinServer coinJoinServer;
 
 /** Used to keep track of current status of mixing pool
  */
 class CCoinJoinServer : public CCoinJoinBaseSession, public CCoinJoinBaseManager
 {
 private:
-    ChainstateManager& m_chainman;
-    CConnman& connman;
-    CDeterministicMNManager& m_dmnman;
-    CDSTXManager& m_dstxman;
-    CMasternodeMetaMan& m_mn_metaman;
-    CTxMemPool& mempool;
-    const CActiveMasternodeManager* const m_mn_activeman;
-    const CMasternodeSync& m_mn_sync;
-    std::unique_ptr<PeerManager>& m_peerman;
-
     // Mixing uses collateral transactions to trust parties entering the pool
     // to behave honestly. If they don't it takes their money.
     std::vector<CTransactionRef> vecSessionCollaterals;
@@ -44,76 +26,63 @@ private:
     bool fUnitTest;
 
     /// Add a clients entry to the pool
-    bool AddEntry(const CCoinJoinEntry& entry, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    bool AddEntry(CConnman& connman, const CCoinJoinEntry& entry, PoolMessage& nMessageIDRet);
     /// Add signature to a txin
-    bool AddScriptSig(const CTxIn& txin) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    bool AddScriptSig(const CTxIn& txin);
 
     /// Charge fees to bad actors (Charge clients a fee if they're abusive)
-    void ChargeFees() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    void ChargeFees(CConnman& connman) const;
     /// Rarely charge fees to pay miners
-    void ChargeRandomFees() const;
+    void ChargeRandomFees(CConnman& connman) const;
     /// Consume collateral in cases when peer misbehaved
-    void ConsumeCollateral(const CTransactionRef& txref) const;
+    void ConsumeCollateral(CConnman& connman, const CTransactionRef& txref) const;
 
     /// Check for process
-    void CheckPool();
+    void CheckPool(CConnman& connman);
 
-    void CreateFinalTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
-    void CommitFinalTransaction() EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    void CreateFinalTransaction(CConnman& connman);
+    void CommitFinalTransaction(CConnman& connman);
 
     /// Is this nDenom and txCollateral acceptable?
     bool IsAcceptableDSA(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) const;
-    bool CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
+    bool CreateNewSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet, CConnman& connman);
     bool AddUserToExistingSession(const CCoinJoinAccept& dsa, PoolMessage& nMessageIDRet);
     /// Do we have enough users to take entries?
     bool IsSessionReady() const;
 
     /// Check that all inputs are signed. (Are all inputs signed?)
-    bool IsSignaturesComplete() const EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    bool IsSignaturesComplete() const;
     /// Check to make sure a given input matches an input in the pool and its scriptSig is valid
-    bool IsInputScriptSigValid(const CTxIn& txin) const EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+    bool IsInputScriptSigValid(const CTxIn& txin) const;
 
     // Set the 'state' value, with some logging and capturing when the state changed
     void SetState(PoolState nStateNew);
 
     /// Relay mixing Messages
-    void RelayFinalTransaction(const CTransaction& txFinal) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
-    void PushStatus(CNode& peer, PoolStatusUpdate nStatusUpdate, PoolMessage nMessageID) const;
-    void RelayStatus(PoolStatusUpdate nStatusUpdate, PoolMessage nMessageID = MSG_NOERR) EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
-    void RelayCompletedTransaction(PoolMessage nMessageID) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    void RelayFinalTransaction(const CTransaction& txFinal, CConnman& connman);
+    void PushStatus(CNode* pnode, PoolStatusUpdate nStatusUpdate, PoolMessage nMessageID, CConnman& connman) const;
+    void RelayStatus(PoolStatusUpdate nStatusUpdate, CConnman& connman, PoolMessage nMessageID = MSG_NOERR);
+    void RelayCompletedTransaction(PoolMessage nMessageID, CConnman& connman);
 
-    void ProcessDSACCEPT(CNode& peer, CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
-    PeerMsgRet ProcessDSQUEUE(const CNode& peer, CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_vecqueue);
-    void ProcessDSVIN(CNode& peer, CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
-    void ProcessDSSIGNFINALTX(CDataStream& vRecv) EXCLUSIVE_LOCKS_REQUIRED(!cs_coinjoin);
+    void ProcessDSACCEPT(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
+    void ProcessDSQUEUE(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
+    void ProcessDSVIN(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
+    void ProcessDSSIGNFINALTX(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
 
-    void SetNull() override EXCLUSIVE_LOCKS_REQUIRED(cs_coinjoin);
+    void SetNull();
 
 public:
-    explicit CCoinJoinServer(ChainstateManager& chainman, CConnman& _connman, CDeterministicMNManager& dmnman,
-                             CDSTXManager& dstxman, CMasternodeMetaMan& mn_metaman, CTxMemPool& mempool,
-                             const CActiveMasternodeManager* const mn_activeman, const CMasternodeSync& mn_sync,
-                             std::unique_ptr<PeerManager>& peerman) :
-        m_chainman(chainman),
-        connman(_connman),
-        m_dmnman(dmnman),
-        m_dstxman(dstxman),
-        m_mn_metaman(mn_metaman),
-        mempool(mempool),
-        m_mn_activeman(mn_activeman),
-        m_mn_sync(mn_sync),
-        m_peerman(peerman),
+    CCoinJoinServer() :
         vecSessionCollaterals(),
-        fUnitTest(false)
-    {}
+        fUnitTest(false) {}
 
-    PeerMsgRet ProcessMessage(CNode& pfrom, std::string_view msg_type, CDataStream& vRecv);
+    void ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
 
     bool HasTimedOut() const;
-    void CheckTimeout();
-    void CheckForCompleteQueue();
+    void CheckTimeout(CConnman& connman);
+    void CheckForCompleteQueue(CConnman& connman);
 
-    void DoMaintenance();
+    void DoMaintenance(CConnman& connman) const;
 
     void GetJsonInfo(UniValue& obj) const;
 };

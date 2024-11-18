@@ -1,7 +1,3 @@
-// Copyright (c) 2021-2024 The Dash Core developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
 #include <qt/forms/ui_governancelist.h>
 #include <qt/governancelist.h>
 
@@ -26,9 +22,8 @@
 /// Proposal wrapper
 ///
 
-Proposal::Proposal(ClientModel* _clientModel, const CGovernanceObject& _govObj, QObject* parent) :
+Proposal::Proposal(const CGovernanceObject _govObj, QObject* parent) :
     QObject(parent),
-    clientModel(_clientModel),
     govObj(_govObj)
 {
     UniValue prop_data;
@@ -70,7 +65,8 @@ QString Proposal::url() const { return m_url; }
 bool Proposal::isActive() const
 {
     std::string strError;
-    return clientModel->node().gov().getObjLocalValidity(govObj, strError, false);
+    LOCK(cs_main);
+    return govObj.IsValidLocally(strError, false);
 }
 
 QString Proposal::votingStatus(const int nAbsVoteReq) const
@@ -78,7 +74,7 @@ QString Proposal::votingStatus(const int nAbsVoteReq) const
     // Voting status...
     // TODO: determine if voting is in progress vs. funded or not funded for past proposals.
     // see CSuperblock::GetNearestSuperblocksHeights(nBlockHeight, nLastSuperblock, nNextSuperblock);
-    const int absYesCount = clientModel->node().gov().getObjAbsYesCount(govObj, VOTE_SIGNAL_FUNDING);
+    const int absYesCount = govObj.GetAbsoluteYesCount(VOTE_SIGNAL_FUNDING);
     QString qStatusString;
     if (absYesCount >= nAbsVoteReq) {
         // Could use govObj.IsSetCachedFunding here, but need nAbsVoteReq to display numbers anyway.
@@ -90,7 +86,7 @@ QString Proposal::votingStatus(const int nAbsVoteReq) const
 
 int Proposal::GetAbsoluteYesCount() const
 {
-    return clientModel->node().gov().getObjAbsYesCount(govObj, VOTE_SIGNAL_FUNDING);
+    return govObj.GetAbsoluteYesCount(VOTE_SIGNAL_FUNDING);
 }
 
 void Proposal::openUrl() const
@@ -231,7 +227,7 @@ void ProposalModel::remove(int row)
     endRemoveRows();
 }
 
-void ProposalModel::reconcile(Span<const Proposal*> proposals)
+void ProposalModel::reconcile(const std::vector<const Proposal*>& proposals)
 {
     // Vector of m_data.count() false values. Going through new proposals,
     // set keep_index true for each old proposal found in the new proposals.
@@ -304,7 +300,6 @@ GovernanceList::GovernanceList(QWidget* parent) :
     ui->govTableView->setModel(proposalModelProxy);
     ui->govTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->govTableView->horizontalHeader()->setStretchLastSection(true);
-    ui->govTableView->verticalHeader()->setVisible(false);
 
     for (int i = 0; i < proposalModel->columnCount(); ++i) {
         ui->govTableView->setColumnWidth(i, proposalModel->columnWidth(i));
@@ -317,6 +312,7 @@ GovernanceList::GovernanceList(QWidget* parent) :
 
     // Set up filtering.
     proposalModelProxy->setFilterKeyColumn(ProposalModel::Column::TITLE); // filter by title column...
+    ui->filterLineEdit->setPlaceholderText(tr("Filter by Title"));
     connect(ui->filterLineEdit, &QLineEdit::textChanged, proposalModelProxy, &QSortFilterProxyModel::setFilterFixedString);
 
     // Changes to number of rows should update proposal count display.
@@ -345,22 +341,21 @@ void GovernanceList::setClientModel(ClientModel* model)
 void GovernanceList::updateProposalList()
 {
     if (this->clientModel) {
-        // A proposal is considered passing if (YES votes - NO votes) >= (Total Weight of Masternodes / 10),
+        // A proposal is considered passing if (YES votes - NO votes) >= (Total Number of Masternodes / 10),
         // count total valid (ENABLED) masternodes to determine passing threshold.
         // Need to query number of masternodes here with access to clientModel.
-        const int nWeightedMnCount = clientModel->getMasternodeList().first.GetValidWeightedMNsCount();
-        const int nAbsVoteReq = std::max(Params().GetConsensus().nGovernanceMinQuorum, nWeightedMnCount / 10);
+        const int nMnCount = clientModel->getMasternodeList().GetValidMNsCount();
+        const int nAbsVoteReq = std::max(Params().GetConsensus().nGovernanceMinQuorum, nMnCount / 10);
         proposalModel->setVotingParams(nAbsVoteReq);
 
-        std::vector<CGovernanceObject> govObjList;
-        clientModel->getAllGovernanceObjects(govObjList);
+        const std::vector<CGovernanceObject> govObjList = clientModel->getAllGovernanceObjects();
         std::vector<const Proposal*> newProposals;
         for (const auto& govObj : govObjList) {
-            if (govObj.GetObjectType() != GovernanceObject::PROPOSAL) {
+            if (govObj.GetObjectType() != GOVERNANCE_OBJECT_PROPOSAL) {
                 continue; // Skip triggers.
             }
 
-            newProposals.emplace_back(new Proposal(this->clientModel, govObj, proposalModel));
+            newProposals.emplace_back(new Proposal(govObj, proposalModel));
         }
         proposalModel->reconcile(newProposals);
     }
@@ -388,11 +383,10 @@ void GovernanceList::showProposalContextMenu(const QPoint& pos)
     }
 
     // right click menu with option to open proposal url
-    QString proposal_url = proposal->url();
-    proposal_url.replace(QChar('&'), QString("&&"));
-
+    QAction* openProposalUrl = new QAction(proposal->url(), this);
     proposalContextMenu->clear();
-    proposalContextMenu->addAction(proposal_url, proposal, &Proposal::openUrl);
+    proposalContextMenu->addAction(openProposalUrl);
+    connect(openProposalUrl, &QAction::triggered, proposal, &Proposal::openUrl);
     proposalContextMenu->exec(QCursor::pos());
 }
 

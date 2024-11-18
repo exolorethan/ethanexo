@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -13,29 +13,25 @@
 #include <shutdown.h>
 #include <validation.h>
 #include <util/ranges.h>
-#include <coinjoin/context.h>
 
-void CMasternodeUtils::DoMaintenance(CConnman& connman, CDeterministicMNManager& dmnman,
-                                     const CMasternodeSync& mn_sync, const CJContext& cj_ctx)
+
+void CMasternodeUtils::ProcessMasternodeConnections(CConnman& connman)
 {
-    if (!mn_sync.IsBlockchainSynced()) return;
-    if (ShutdownRequested()) return;
-
     std::vector<CDeterministicMNCPtr> vecDmns; // will be empty when no wallet
 #ifdef ENABLE_WALLET
-    cj_ctx.walletman->ForEachCJClientMan([&vecDmns](const std::unique_ptr<CCoinJoinClientManager>& clientman) {
-        clientman->GetMixingMasternodesInfo(vecDmns);
-    });
+    for (const auto& pair : coinJoinClientManagers) {
+        pair.second->GetMixingMasternodesInfo(vecDmns);
+    }
 #endif // ENABLE_WALLET
 
     // Don't disconnect masternode connections when we have less then the desired amount of outbound nodes
     int nonMasternodeCount = 0;
-    connman.ForEachNode(CConnman::AllNodes, [&](const CNode* pnode) {
-        if ((!pnode->IsInboundConn() &&
-            !pnode->IsFeelerConn() &&
-            !pnode->IsManualConn() &&
+    connman.ForEachNode(CConnman::AllNodes, [&](CNode* pnode) {
+        if (!pnode->fInbound &&
+            !pnode->fFeeler &&
+            !pnode->m_manual_connection &&
             !pnode->m_masternode_connection &&
-            !pnode->m_masternode_probe_connection)
+            !pnode->m_masternode_probe_connection
             ||
             // treat unverified MNs as non-MNs here
             pnode->GetVerifiedProRegTxHash().IsNull()) {
@@ -47,45 +43,48 @@ void CMasternodeUtils::DoMaintenance(CConnman& connman, CDeterministicMNManager&
     }
 
     connman.ForEachNode(CConnman::AllNodes, [&](CNode* pnode) {
-        if (pnode->m_masternode_probe_connection) {
-            // we're not disconnecting masternode probes for at least PROBE_WAIT_INTERVAL seconds
-            if (GetTime<std::chrono::seconds>() - pnode->m_connected < PROBE_WAIT_INTERVAL) return;
-        } else {
-            // we're only disconnecting m_masternode_connection connections
-            if (!pnode->m_masternode_connection) return;
-            if (!pnode->GetVerifiedProRegTxHash().IsNull()) {
-                const auto tip_mn_list = dmnman.GetListAtChainTip();
-                // keep _verified_ LLMQ connections
-                if (connman.IsMasternodeQuorumNode(pnode, tip_mn_list)) {
-                    return;
-                }
-                // keep _verified_ LLMQ relay connections
-                if (connman.IsMasternodeQuorumRelayMember(pnode->GetVerifiedProRegTxHash())) {
-                    return;
-                }
-                // keep _verified_ inbound connections
-                if (pnode->IsInboundConn()) {
-                    return;
-                }
-            } else if (GetTime<std::chrono::seconds>() - pnode->m_connected < PROBE_WAIT_INTERVAL) {
-                // non-verified, give it some time to verify itself
-                return;
-            } else if (pnode->qwatch) {
-                // keep watching nodes
+        // we're only disconnecting m_masternode_connection connections
+        if (!pnode->m_masternode_connection) return;
+        if (!pnode->GetVerifiedProRegTxHash().IsNull()) {
+            // keep _verified_ LLMQ connections
+            if (connman.IsMasternodeQuorumNode(pnode)) {
                 return;
             }
+            // keep _verified_ inbound connections
+            if (pnode->fInbound) {
+                return;
+            }
+        } else if (GetSystemTimeInSeconds() - pnode->nTimeConnected < 5) {
+            // non-verified, give it some time to verify itself
+            return;
         }
+        // we're not disconnecting masternode probes for at least a few seconds
+        if (pnode->m_masternode_probe_connection && GetSystemTimeInSeconds() - pnode->nTimeConnected < 5) return;
 
 #ifdef ENABLE_WALLET
         bool fFound = ranges::any_of(vecDmns, [&pnode](const auto& dmn){ return pnode->addr == dmn->pdmnState->addr; });
         if (fFound) return; // do NOT disconnect mixing masternodes
 #endif // ENABLE_WALLET
         if (fLogIPs) {
-            LogPrint(BCLog::NET_NETCONN, "Closing Masternode connection: peer=%d, addr=%s\n", pnode->GetId(),
-                     pnode->addr.ToStringAddrPort());
+            LogPrint(BCLog::NET_NETCONN, "Closing Masternode connection: peer=%d, addr=%s\n", pnode->GetId(), pnode->addr.ToString());
         } else {
             LogPrint(BCLog::NET_NETCONN, "Closing Masternode connection: peer=%d\n", pnode->GetId());
         }
         pnode->fDisconnect = true;
     });
 }
+
+void CMasternodeUtils::DoMaintenance(CConnman& connman)
+{
+    if(!masternodeSync.IsBlockchainSynced() || ShutdownRequested())
+        return;
+
+    static unsigned int nTick = 0;
+
+    nTick++;
+
+    if(nTick % 60 == 0) {
+        ProcessMasternodeConnections(connman);
+    }
+}
+

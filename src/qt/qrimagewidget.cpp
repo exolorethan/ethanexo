@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,14 +9,13 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDrag>
-#include <QFontDatabase>
 #include <QMenu>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h> /* for USE_QRCODE */
+#include <config/ethanexo-config.h> /* for USE_QRCODE */
 #endif
 
 #ifdef USE_QRCODE
@@ -27,8 +26,12 @@ QRImageWidget::QRImageWidget(QWidget *parent):
     QLabel(parent), contextMenu(nullptr)
 {
     contextMenu = new QMenu(this);
-    contextMenu->addAction(tr("&Save Image…"), this, &QRImageWidget::saveImage);
-    contextMenu->addAction(tr("&Copy Image"), this, &QRImageWidget::copyImage);
+    QAction *saveImageAction = new QAction(tr("&Save Image..."), this);
+    connect(saveImageAction, &QAction::triggered, this, &QRImageWidget::saveImage);
+    contextMenu->addAction(saveImageAction);
+    QAction *copyImageAction = new QAction(tr("&Copy Image"), this);
+    connect(copyImageAction, &QAction::triggered, this, &QRImageWidget::copyImage);
+    contextMenu->addAction(copyImageAction);
 }
 
 bool QRImageWidget::setQR(const QString& data, const QString& text)
@@ -64,39 +67,33 @@ bool QRImageWidget::setQR(const QString& data, const QString& text)
     QRcode_free(code);
 
     // Create the image with respect to the device pixel ratio
-    int qr_addr_image_width = QR_IMAGE_SIZE;
-    int qr_addr_image_height = QR_IMAGE_SIZE + QR_IMAGE_MARGIN;
+    int qrAddrImageWidth = QR_IMAGE_SIZE;
+    int qrAddrImageHeight = QR_IMAGE_SIZE + 20;
     qreal scale = qApp->devicePixelRatio();
-    QImage qrAddrImage = QImage(qr_addr_image_width * scale, qr_addr_image_height * scale, QImage::Format_RGB32);
+    QImage qrAddrImage = QImage(qrAddrImageWidth * scale, qrAddrImageHeight * scale, QImage::Format_RGB32);
     qrAddrImage.setDevicePixelRatio(scale);
-    {
-        QPainter painter(&qrAddrImage);
+    QPainter painter(&qrAddrImage);
 
-        // Fill the whole image with border color
-        qrAddrImage.fill(GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BORDER_WIDGET));
+    // Fill the whole image with border color
+    qrAddrImage.fill(GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BORDER_WIDGET));
 
-        // Create a 2px/2px smaller rect and fill it with background color to keep the 1px border with the border color
-        QRect paddedRect = QRect(1, 1, qr_addr_image_width - 2, qr_addr_image_height - 2);
-        painter.fillRect(paddedRect, GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BACKGROUND_WIDGET));
-        painter.drawImage(2, 2, qrImage.scaled(QR_IMAGE_SIZE - 4, QR_IMAGE_SIZE - 4));
+    // Create a 2px/2px smaller rect and fill it with background color to keep the 1px border with the border color
+    QRect paddedRect = QRect(1, 1, qrAddrImageWidth - 2, qrAddrImageHeight - 2);
+    painter.fillRect(paddedRect, GUIUtil::getThemedQColor(GUIUtil::ThemedColor::BACKGROUND_WIDGET));
+    painter.drawImage(2, 2, qrImage.scaled(QR_IMAGE_SIZE - 4, QR_IMAGE_SIZE - 4));
 
-        if (!text.isEmpty()) {
+    // calculate ideal font size
+    QFont font = GUIUtil::getFontNormal();
+    qreal font_size = GUIUtil::calculateIdealFontSize((paddedRect.width() - 20), text, font);
+    font.setPointSizeF(font_size);
 
-            // calculate ideal font size
-            QFont font = GUIUtil::getFontNormal();
-            font.setStretch(QFont::SemiCondensed);
-            font.setLetterSpacing(QFont::AbsoluteSpacing, 1);
-            qreal font_size = GUIUtil::calculateIdealFontSize((paddedRect.width() - QR_IMAGE_MARGIN), text, font);
-            font.setPointSizeF(font_size);
+    // paint the address
+    painter.setFont(font);
+    painter.setPen(GUIUtil::getThemedQColor(GUIUtil::ThemedColor::QR_PIXEL));
+    paddedRect.setHeight(QR_IMAGE_SIZE + 3);
+    painter.drawText(paddedRect, Qt::AlignBottom|Qt::AlignCenter, text);
+    painter.end();
 
-            // paint the address
-            painter.setFont(font);
-            painter.setPen(GUIUtil::getThemedQColor(GUIUtil::ThemedColor::QR_PIXEL));
-            paddedRect.setHeight(QR_IMAGE_SIZE + 3);
-            painter.drawText(paddedRect, Qt::AlignBottom|Qt::AlignCenter, text);
-        }
-        painter.end();
-    }
     setPixmap(QPixmap::fromImage(qrAddrImage));
 
     return true;
@@ -108,12 +105,15 @@ bool QRImageWidget::setQR(const QString& data, const QString& text)
 
 QImage QRImageWidget::exportImage()
 {
-    return GUIUtil::GetImage(this);
+    if(!pixmap())
+        return QImage();
+    return pixmap()->toImage();
 }
 
 void QRImageWidget::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton && GUIUtil::HasPixmap(this)) {
+    if(event->button() == Qt::LeftButton && pixmap())
+    {
         event->accept();
         QMimeData *mimeData = new QMimeData;
         mimeData->setImageData(exportImage());
@@ -128,13 +128,9 @@ void QRImageWidget::mousePressEvent(QMouseEvent *event)
 
 void QRImageWidget::saveImage()
 {
-    if (!GUIUtil::HasPixmap(this))
+    if(!pixmap())
         return;
-    QString fn = GUIUtil::getSaveFileName(
-        this, tr("Save QR Code"), QString(),
-        /*: Expanded name of the PNG file format.
-            See: https://en.wikipedia.org/wiki/Portable_Network_Graphics. */
-        tr("PNG Image") + QLatin1String(" (*.png)"), nullptr);
+    QString fn = GUIUtil::getSaveFileName(this, tr("Save QR Code"), QString(), tr("PNG Image (*.png)"), nullptr);
     if (!fn.isEmpty())
     {
         exportImage().save(fn);
@@ -143,14 +139,14 @@ void QRImageWidget::saveImage()
 
 void QRImageWidget::copyImage()
 {
-    if (!GUIUtil::HasPixmap(this))
+    if(!pixmap())
         return;
     QApplication::clipboard()->setImage(exportImage());
 }
 
 void QRImageWidget::contextMenuEvent(QContextMenuEvent *event)
 {
-    if (!GUIUtil::HasPixmap(this))
+    if(!pixmap())
         return;
     contextMenu->exec(event->globalPos());
 }

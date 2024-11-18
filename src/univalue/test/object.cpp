@@ -1,7 +1,7 @@
 // Copyright (c) 2014 BitPay Inc.
 // Copyright (c) 2014-2016 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
-// file COPYING or https://opensource.org/licenses/mit-license.php.
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <stdint.h>
 #include <vector>
@@ -20,17 +20,17 @@
         try { \
             (stmt); \
             assert(0 && "No exception caught"); \
-        } catch (excMatch&) { \
-        } catch (...) { \
-            assert(0 && "Wrong exception caught"); \
-        } \
+        } catch (excMatch & e) { \
+	} catch (...) { \
+	    assert(0 && "Wrong exception caught"); \
+	} \
     }
 #define BOOST_CHECK_NO_THROW(stmt) { \
         try { \
             (stmt); \
-        } catch (...) { \
-            assert(0); \
-        } \
+	} catch (...) { \
+	    assert(0); \
+	} \
     }
 
 BOOST_FIXTURE_TEST_SUITE(univalue_tests, BasicTestingSetup)

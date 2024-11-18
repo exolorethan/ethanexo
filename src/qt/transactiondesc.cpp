@@ -1,10 +1,10 @@
-// Copyright (c) 2011-2019 The Bitcoin Core developers
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifdef HAVE_CONFIG_H
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
 #include <qt/transactiondesc.h>
@@ -17,16 +17,12 @@
 #include <consensus/consensus.h>
 #include <key_io.h>
 #include <interfaces/node.h>
-#include <interfaces/wallet.h>
+#include <validation.h>
 #include <script/script.h>
 #include <util/system.h>
-#include <validation.h>
-#include <wallet/ismine.h>
 
 #include <stdint.h>
 #include <string>
-
-#include <QLatin1String>
 
 QString TransactionDesc::FormatTxStatus(const interfaces::WalletTx& wtx, const interfaces::WalletTxStatus& status, bool inMempool, int numBlocks)
 {
@@ -46,25 +42,54 @@ QString TransactionDesc::FormatTxStatus(const interfaces::WalletTx& wtx, const i
         bool fChainLocked = status.is_chainlocked;
 
         if (nDepth == 0) {
-            const QString abandoned{status.is_abandoned ? QLatin1String(", ") + tr("abandoned") : QString()};
-            strTxStatus = tr("0/unconfirmed, %1").arg((inMempool ? tr("in memory pool") : tr("not in memory pool"))) + abandoned;
+            strTxStatus = tr("0/unconfirmed, %1").arg((inMempool ? tr("in memory pool") : tr("not in memory pool"))) + (status.is_abandoned ? ", "+tr("abandoned") : "");
         } else if (!fChainLocked && nDepth < 6) {
             strTxStatus = tr("%1/unconfirmed").arg(nDepth);
         } else {
             strTxStatus = tr("%1 confirmations").arg(nDepth);
             if (fChainLocked) {
-                strTxStatus += QLatin1String(", ") + tr("locked via ChainLocks");
+                strTxStatus += ", " + tr("locked via ChainLocks");
                 return strTxStatus;
             }
         }
 
         if (status.is_islocked) {
-            strTxStatus += QLatin1String(", ") + tr("verified via InstantSend");
+            strTxStatus += ", " + tr("verified via InstantSend");
         }
 
         return strTxStatus;
     }
 }
+
+#ifndef ENABLE_BIP70
+// Takes an encoded PaymentRequest as a string and tries to find the Common Name of the X.509 certificate
+// used to sign the PaymentRequest.
+bool GetPaymentRequestMerchant(const std::string& pr, QString& merchant)
+{
+    // Search for the supported pki type strings
+    if (pr.find(std::string({0x12, 0x0b}) + "x509+sha256") != std::string::npos || pr.find(std::string({0x12, 0x09}) + "x509+sha1") != std::string::npos) {
+        // We want the common name of the Subject of the cert. This should be the second occurrence
+        // of the bytes 0x0603550403. The first occurrence of those is the common name of the issuer.
+        // After those bytes will be either 0x13 or 0x0C, then length, then either the ascii or utf8
+        // string with the common name which is the merchant name
+        size_t cn_pos = pr.find({0x06, 0x03, 0x55, 0x04, 0x03});
+        if (cn_pos != std::string::npos) {
+            cn_pos = pr.find({0x06, 0x03, 0x55, 0x04, 0x03}, cn_pos + 5);
+            if (cn_pos != std::string::npos) {
+                cn_pos += 5;
+                if (pr[cn_pos] == 0x13 || pr[cn_pos] == 0x0c) {
+                    cn_pos++; // Consume the type
+                    int str_len = pr[cn_pos];
+                    cn_pos++; // Consume the string length
+                    merchant = QString::fromUtf8(pr.data() + cn_pos, str_len);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+#endif
 
 QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wallet, TransactionRecord *rec, int unit)
 {
@@ -95,10 +120,6 @@ QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wall
     if (wtx.is_coinbase)
     {
         strHTML += "<b>" + tr("Source") + ":</b> " + tr("Generated") + "<br>";
-    }
-    else if (wtx.is_platform_transfer)
-    {
-        strHTML += "<b>" + tr("Source") + ":</b> " + tr("Platform Transfer") + "<br>";
     }
     else if (wtx.value_map.count("from") && !wtx.value_map["from"].empty())
     {
@@ -274,10 +295,34 @@ QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wall
     strHTML += "<b>" + tr("Output index") + ":</b> " + QString::number(rec->getOutputIndex()) + "<br>";
     strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
 
-    // Message from normal dash:URI (dash:XyZ...?message=example)
+    // Message from normal ethanexo:URI (ethanexo:XyZ...?message=example)
     for (const std::pair<std::string, std::string>& r : orderForm) {
         if (r.first == "Message")
             strHTML += "<br><b>" + tr("Message") + ":</b><br>" + GUIUtil::HtmlEscape(r.second, true) + "<br>";
+
+        //
+        // PaymentRequest info:
+        //
+        if (r.first == "PaymentRequest")
+        {
+            QString merchant;
+#ifdef ENABLE_BIP70
+            PaymentRequestPlus req;
+            req.parse(QByteArray::fromRawData(r.second.data(), r.second.size()));
+            if (!req.getMerchant(PaymentServer::getCertStore(), merchant)) {
+                merchant.clear();
+            }
+#else
+            if (!GetPaymentRequestMerchant(r.second, merchant)) {
+                merchant.clear();
+            } else {
+                merchant += tr(" (Certificate was not verified)");
+            }
+#endif
+            if (!merchant.isNull()) {
+                strHTML += "<b>" + tr("Merchant") + ":</b> " + GUIUtil::HtmlEscape(merchant) + "<br>";
+            }
+        }
     }
 
     if (wtx.is_coinbase)

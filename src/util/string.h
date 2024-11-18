@@ -5,29 +5,15 @@
 #ifndef BITCOIN_UTIL_STRING_H
 #define BITCOIN_UTIL_STRING_H
 
-#include <util/spanparsing.h>
+#include <attributes.h>
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
 #include <cstring>
 #include <locale>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
-
-void ReplaceAll(std::string& in_out, const std::string& search, const std::string& substitute);
-
-[[nodiscard]] inline std::vector<std::string> SplitString(std::string_view str, char sep)
-{
-    return spanparsing::Split<std::string>(str, sep);
-}
-
-[[nodiscard]] inline std::vector<std::string> SplitString(std::string_view str, std::string_view separators)
-{
-    return spanparsing::Split<std::string>(str, separators);
-}
 
 [[nodiscard]] inline std::string TrimString(const std::string& str, const std::string& pattern = " \f\n\r\t\v")
 {
@@ -37,14 +23,6 @@ void ReplaceAll(std::string& in_out, const std::string& search, const std::strin
     }
     std::string::size_type end = str.find_last_not_of(pattern);
     return str.substr(front, end - front + 1);
-}
-
-[[nodiscard]] inline std::string RemovePrefix(const std::string& str, const std::string& prefix)
-{
-    if (str.substr(0, prefix.size()) == prefix) {
-        return str.substr(prefix.size());
-    }
-    return str;
 }
 
 /**
@@ -79,14 +57,6 @@ inline std::string Join(const std::vector<std::string>& list, const std::string&
 }
 
 /**
- * Create an unordered multi-line list of items.
- */
-inline std::string MakeUnorderedList(const std::vector<std::string>& items)
-{
-    return Join(items, "\n", [](const std::string& item) { return "- " + item; });
-}
-
-/**
  * Check if a string does not contain any embedded NUL (\0) characters
  */
 [[nodiscard]] inline bool ValidAsCString(const std::string& str) noexcept
@@ -103,18 +73,6 @@ template <typename T1, size_t PREFIX_LEN>
 {
     return obj.size() >= PREFIX_LEN &&
            std::equal(std::begin(prefix), std::end(prefix), std::begin(obj));
-}
-
-/**
- * Locale-independent version of std::to_string
- */
-template <typename T>
-std::string ToString(const T& t)
-{
-    std::ostringstream oss;
-    oss.imbue(std::locale::classic());
-    oss << t;
-    return oss.str();
 }
 
 #endif // BITCOIN_UTIL_STRING_H

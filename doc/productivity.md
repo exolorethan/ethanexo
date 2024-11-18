@@ -9,11 +9,10 @@ Table of Contents
    * [Disable features with `./configure`](#disable-features-with-configure)
    * [Make use of your threads with `make -j`](#make-use-of-your-threads-with-make--j)
    * [Only build what you need](#only-build-what-you-need)
-   * [Compile on multiple machines](#compile-on-multiple-machines)
    * [Multiple working directories with `git worktrees`](#multiple-working-directories-with-git-worktrees)
    * [Interactive "dummy rebases" for fixups and execs with `git merge-base`](#interactive-dummy-rebases-for-fixups-and-execs-with-git-merge-base)
 * [Writing code](#writing-code)
-   * [Format C/C++ diffs with `clang-format-diff.py`](#format-cc-diffs-with-clang-format-diffpy)
+   * [Format C/C++/Protobuf diffs with `clang-format-diff.py`](#format-ccprotobuf-diffs-with-clang-format-diffpy)
    * [Format Python diffs with `yapf-diff.py`](#format-python-diffs-with-yapf-diffpy)
 * [Rebasing/Merging code](#rebasingmerging-code)
    * [More conflict context with `merge.conflictstyle diff3`](#more-conflict-context-with-mergeconflictstyle-diff3)
@@ -33,7 +32,7 @@ The easiest way to faster compile times is to cache compiles. `ccache` is a way 
 
 Install `ccache` through your distribution's package manager, and run `./configure` with your normal flags to pick it up.
 
-To use ccache for all your C/C++ projects, follow the symlinks method [here](https://ccache.dev/manual/latest.html#_run_modes) to set it up.
+To use ccache for all your C/C++ projects, follow the symlinks method [here](https://ccache.samba.org/manual/latest.html#_run_modes) to set it up.
 
 To get the most out of ccache, put something like this in `~/.ccache/ccache.conf`:
 
@@ -52,7 +51,6 @@ After running `./autogen.sh`, which generates the `./configure` file, use `./con
 
 ```sh
 --without-miniupnpc
---without-natpmp
 --disable-bench
 --disable-wallet
 --without-gui
@@ -75,16 +73,12 @@ When rebuilding during development, note that running `make`, without giving a t
 Obviously, it is important to build and run the tests at appropriate times -- but when you just want a quick compile to check your work, consider picking one or a set of build targets relevant to what you're working on, e.g.:
 
 ```sh
-make src/dashd src/dash-cli
-make src/qt/dash-qt
-make -C src dash_bench
+make src/ethanexod src/ethanexo-cli
+make src/qt/ethanexo-qt
+make -C src ethanexo_bench
 ```
 
 (You can and should combine this with `-j`, as above, for a parallel build.)
-
-### Compile on multiple machines
-
-If you have more than one computer at your disposal, you can use [distcc](https://www.distcc.org) to speed up compilation. This is easiest when all computers run the same operating system and compiler version.
 
 ### Multiple working directories with `git worktrees`
 
@@ -124,13 +118,13 @@ You can also set up [upstream refspecs](#reference-prs-easily-with-refspecs) to 
 Writing code
 ------------
 
-### Format C/C++ diffs with `clang-format-diff.py`
+### Format C/C++/Protobuf diffs with `clang-format-diff.py`
 
 See [contrib/devtools/README.md](/contrib/devtools/README.md#clang-format-diff.py).
 
 ### Format Python diffs with `yapf-diff.py`
 
-Usage is exactly the same as [`clang-format-diff.py`](#format-cc-diffs-with-clang-format-diffpy). You can get it [here](https://github.com/MarcoFalke/yapf-diff).
+Usage is exactly the same as [`clang-format-diff.py`](#format-ccprotobuf-diffs-with-clang-format-diffpy). You can get it [here](https://github.com/MarcoFalke/yapf-diff).
 
 Rebasing/Merging code
 -------------
@@ -178,11 +172,11 @@ When looking at other's pull requests, it may make sense to add the following se
 
 ```
 [remote "upstream-pull"]
-        fetch = +refs/pull/*/head:refs/remotes/upstream-pull/*
-        url = git@github.com:dashpay/dash.git
+        fetch = +refs/pull/*:refs/remotes/upstream-pull/*
+        url = git@github.com:ethanexo/ethanexo.git
 ```
 
-This will add an `upstream-pull` remote to your git repository, which can be fetched using `git fetch --all` or `git fetch upstream-pull`. It will download and store on disk quite a lot of data (all PRs, including merged and closed ones). Afterwards, you can use `upstream-pull/NUMBER/head` in arguments to `git show`, `git checkout` and anywhere a commit id would be acceptable to see the changes from pull request NUMBER.
+This will add an `upstream-pull` remote to your git repository, which can be fetched using `git fetch --all` or `git fetch upstream-pull`. Afterwards, you can use `upstream-pull/NUMBER/head` in arguments to `git show`, `git checkout` and anywhere a commit id would be acceptable to see the changes from pull request NUMBER.
 
 ### Diff the diffs with `git range-diff`
 

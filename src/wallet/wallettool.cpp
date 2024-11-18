@@ -1,71 +1,67 @@
-// Copyright (c) 2016-2020 The Bitcoin Core developers
+// Copyright (c) 2016-2018 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <fs.h>
-#include <util/translation.h>
+#include <interfaces/chain.h>
 #include <util/system.h>
-#include <wallet/dump.h>
-#include <wallet/salvage.h>
 #include <wallet/wallet.h>
 #include <wallet/walletutil.h>
 
 namespace WalletTool {
 
 // The standard wallet deleter function blocks on the validation interface
-// queue, which doesn't exist for the dash-wallet. Define our own
+// queue, which doesn't exist for the ethanexo-wallet. Define our own
 // deleter here.
 static void WalletToolReleaseWallet(CWallet* wallet)
 {
     wallet->WalletLogPrintf("Releasing wallet\n");
-    wallet->Close();
+    wallet->Flush(true);
     delete wallet;
 }
 
-static const bool DEFAULT_USE_HD_WALLET{true};
-
-static void WalletCreate(CWallet* wallet_instance, uint64_t wallet_creation_flags)
+static std::shared_ptr<CWallet> CreateWallet(const std::string& name, const fs::path& path)
 {
-    LOCK(wallet_instance->cs_wallet);
-    if (gArgs.GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET)) {
-        wallet_instance->SetMinVersion(FEATURE_LATEST);
-    } else {
-        wallet_instance->SetMinVersion(FEATURE_COMPRPUBKEY);
+    if (fs::exists(path)) {
+        tfm::format(std::cerr, "Error: File exists already\n");
+        return nullptr;
     }
-    wallet_instance->SetWalletFlag(wallet_creation_flags);
+    // dummy chain interface
+    auto chain = interfaces::MakeChain();
+    std::shared_ptr<CWallet> wallet_instance(new CWallet(*chain, WalletLocation(name), WalletDatabase::Create(path)), WalletToolReleaseWallet);
+    bool first_run = true;
+    DBErrors load_wallet_ret = wallet_instance->LoadWallet(first_run);
+    if (load_wallet_ret != DBErrors::LOAD_OK) {
+        tfm::format(std::cerr, "Error creating %s", name);
+        return nullptr;
+    }
 
-    if (!wallet_instance->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
-        // TODO: use here SetupGeneration instead, such as: spk_man->SetupGeneration(false);
-        // SetupGeneration is not backported yet
-        wallet_instance->SetupLegacyScriptPubKeyMan();
-        auto spk_man = wallet_instance->GetOrCreateLegacyScriptPubKeyMan();
-        if (gArgs.GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET)) {
-            spk_man->GenerateNewHDChain(/*secureMnemonic=*/"", /*secureMnemonicPassphrase=*/"");
-        }
-    } else {
-        wallet_instance->SetupDescriptorScriptPubKeyMans();
-    }
+    wallet_instance->SetMinVersion(FEATURE_COMPRPUBKEY);
+
+    // generate a new HD seed
+    // NOTE: we do not yet create HD wallets by default
+    // wallet_instance->GenerateNewHDChain("", "");
 
     tfm::format(std::cout, "Topping up keypool...\n");
     wallet_instance->TopUpKeyPool();
+    return wallet_instance;
 }
 
-static std::shared_ptr<CWallet> MakeWallet(const std::string& name, const fs::path& path, DatabaseOptions options)
+static std::shared_ptr<CWallet> LoadWallet(const std::string& name, const fs::path& path)
 {
-    DatabaseStatus status;
-    bilingual_str error;
-    std::unique_ptr<WalletDatabase> database = MakeDatabase(path, options, status, error);
-    if (!database) {
-        tfm::format(std::cerr, "%s\n", error.original);
+    if (!fs::exists(path)) {
+        tfm::format(std::cerr, "Error: Wallet files does not exist\n");
         return nullptr;
     }
 
     // dummy chain interface
-    std::shared_ptr<CWallet> wallet_instance{new CWallet(/*chain=*/ nullptr, /*coinjoin_loader=*/ nullptr, name, std::move(database)), WalletToolReleaseWallet};
+    auto chain = interfaces::MakeChain();
+    std::shared_ptr<CWallet> wallet_instance(new CWallet(*chain, WalletLocation(name), WalletDatabase::Create(path)), WalletToolReleaseWallet);
     DBErrors load_wallet_ret;
     try {
-        load_wallet_ret = wallet_instance->LoadWallet();
-    } catch (const std::runtime_error&) {
+        bool first_run;
+        load_wallet_ret = wallet_instance->LoadWallet(first_run);
+    } catch (const std::runtime_error) {
         tfm::format(std::cerr, "Error loading %s. Is wallet being used by another process?\n", name);
         return nullptr;
     }
@@ -92,8 +88,6 @@ static std::shared_ptr<CWallet> MakeWallet(const std::string& name, const fs::pa
         }
     }
 
-    if (options.require_create) WalletCreate(wallet_instance.get(), options.create_flags);
-
     return wallet_instance;
 }
 
@@ -104,127 +98,37 @@ static void WalletShowInfo(CWallet* wallet_instance)
 
     CHDChain hdChainTmp;
     tfm::format(std::cout, "Wallet info\n===========\n");
-    tfm::format(std::cout, "Name: %s\n", wallet_instance->GetName());
-    tfm::format(std::cout, "Format: %s\n", wallet_instance->GetDatabase().Format());
-    tfm::format(std::cout, "Descriptors: %s\n", wallet_instance->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS) ? "yes" : "no");
     tfm::format(std::cout, "Encrypted: %s\n", wallet_instance->IsCrypted() ? "yes" : "no");
-    tfm::format(std::cout, "HD (hd seed available): %s\n", wallet_instance->IsHDEnabled() ? "yes" : "no");
+    tfm::format(std::cout, "HD (hd seed available): %s\n", wallet_instance->GetHDChain(hdChainTmp) ?  "yes" : "no");
     tfm::format(std::cout, "Keypool Size: %u\n", wallet_instance->GetKeyPoolSize());
     tfm::format(std::cout, "Transactions: %zu\n", wallet_instance->mapWallet.size());
-    tfm::format(std::cout, "Address Book: %zu\n", wallet_instance->m_address_book.size());
+    tfm::format(std::cout, "Address Book: %zu\n", wallet_instance->mapAddressBook.size());
 }
 
-bool ExecuteWalletToolFunc(const ArgsManager& args, const std::string& command)
+bool ExecuteWalletToolFunc(const std::string& command, const std::string& name)
 {
-    if (args.IsArgSet("-format") && command != "createfromdump") {
-        tfm::format(std::cerr, "The -format option can only be used with the \"createfromdump\" command.\n");
-        return false;
-    }
-    if (args.IsArgSet("-dumpfile") && command != "dump" && command != "createfromdump") {
-        tfm::format(std::cerr, "The -dumpfile option can only be used with the \"dump\" and \"createfromdump\" commands.\n");
-        return false;
-    }
-    if (args.IsArgSet("-descriptors") && command != "create") {
-        tfm::format(std::cerr, "The -descriptors option can only be used with the 'create' command.\n");
-        return false;
-    }
-    if (command == "create" && !args.IsArgSet("-wallet")) {
-        tfm::format(std::cerr, "Wallet name must be provided when creating a new wallet.\n");
-        return false;
-    }
-    const std::string name = args.GetArg("-wallet", "");
-    const fs::path path = fsbridge::AbsPathJoin(GetWalletDir(), fs::PathFromString(name));
+    fs::path path = fs::absolute(name, GetWalletDir());
 
     if (command == "create") {
-        DatabaseOptions options;
-        options.require_create = true;
-        if (args.GetBoolArg("-descriptors", false)) {
-            options.create_flags |= WALLET_FLAG_DESCRIPTORS;
-            options.require_format = DatabaseFormat::SQLITE;
-        }
-
-        std::shared_ptr<CWallet> wallet_instance = MakeWallet(name, path, options);
+        std::shared_ptr<CWallet> wallet_instance = CreateWallet(name, path);
         if (wallet_instance) {
             WalletShowInfo(wallet_instance.get());
-            wallet_instance->Close();
+            wallet_instance->Flush(true);
         }
     } else if (command == "info") {
-            DatabaseOptions options;
-            options.require_existing = true;
-            std::shared_ptr<CWallet> wallet_instance = MakeWallet(name, path, options);
-            if (!wallet_instance) return false;
-            WalletShowInfo(wallet_instance.get());
-            wallet_instance->Close();
-    } else if (command == "salvage") {
-#ifdef USE_BDB
-        bilingual_str error;
-        std::vector<bilingual_str> warnings;
-        bool ret = RecoverDatabaseFile(path, error, warnings);
-        if (!ret) {
-            for (const auto& warning : warnings) {
-                tfm::format(std::cerr, "%s\n", warning.original);
-            }
-            if (!error.empty()) {
-                tfm::format(std::cerr, "%s\n", error.original);
-            }
-        }
-        return ret;
-#else
-        tfm::format(std::cerr, "Salvage command is not available as BDB support is not compiled");
-        return false;
-#endif
-    } else if (command == "wipetxes") {
-#ifdef USE_BDB
-        DatabaseOptions options;
-        options.require_existing = true;
-        std::shared_ptr<CWallet> wallet_instance = MakeWallet(name, path, options);
-        if (wallet_instance == nullptr) return false;
-
-        std::vector<uint256> vHash;
-        std::vector<uint256> vHashOut;
-
-        LOCK(wallet_instance->cs_wallet);
-
-        for (auto& [txid, _] : wallet_instance->mapWallet) {
-            vHash.push_back(txid);
-        }
-
-        if (wallet_instance->ZapSelectTx(vHash, vHashOut) != DBErrors::LOAD_OK) {
-            tfm::format(std::cerr, "Could not properly delete transactions");
-            wallet_instance->Close();
+        if (!fs::exists(path)) {
+            tfm::format(std::cerr, "Error: no wallet file at %s\n", name);
             return false;
         }
-
-        wallet_instance->Close();
-        return vHashOut.size() == vHash.size();
-#else
-        tfm::format(std::cerr, "Wipetxes command is not available as BDB support is not compiled");
-        return false;
-#endif
-    } else if (command == "dump") {
-        DatabaseOptions options;
-        options.require_existing = true;
-        std::shared_ptr<CWallet> wallet_instance = MakeWallet(name, path, options);
+        std::string error;
+        if (!WalletBatch::VerifyEnvironment(path, error)) {
+            tfm::format(std::cerr, "Error loading %s. Is wallet being used by other process?\n", name);
+            return false;
+        }
+        std::shared_ptr<CWallet> wallet_instance = LoadWallet(name, path);
         if (!wallet_instance) return false;
-        bilingual_str error;
-        bool ret = DumpWallet(*wallet_instance, error);
-        if (!ret && !error.empty()) {
-            tfm::format(std::cerr, "%s\n", error.original);
-            return ret;
-        }
-        tfm::format(std::cout, "The dumpfile may contain private keys. To ensure the safety of your Bitcoin, do not share the dumpfile.\n");
-        return ret;
-    } else if (command == "createfromdump") {
-        bilingual_str error;
-        std::vector<bilingual_str> warnings;
-        bool ret = CreateFromDump(name, path, error, warnings);
-        for (const auto& warning : warnings) {
-            tfm::format(std::cout, "%s\n", warning.original);
-        }
-        if (!ret && !error.empty()) {
-            tfm::format(std::cerr, "%s\n", error.original);
-        }
-        return ret;
+        WalletShowInfo(wallet_instance.get());
+        wallet_instance->Flush(true);
     } else {
         tfm::format(std::cerr, "Invalid command: %s\n", command);
         return false;

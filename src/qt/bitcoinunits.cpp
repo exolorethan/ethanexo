@@ -1,19 +1,13 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2022 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <qt/bitcoinunits.h>
 #include <chainparams.h>
 
-#include <consensus/amount.h>
-
 #include <QSettings>
 #include <QStringList>
-
-#include <cassert>
-
-static constexpr auto MAX_DIGITS_BTC = 16;
 
 BitcoinUnits::BitcoinUnits(QObject *parent):
         QAbstractListModel(parent),
@@ -24,10 +18,10 @@ BitcoinUnits::BitcoinUnits(QObject *parent):
 QList<BitcoinUnits::Unit> BitcoinUnits::availableUnits()
 {
     QList<BitcoinUnits::Unit> unitlist;
-    unitlist.append(DASH);
-    unitlist.append(mDASH);
-    unitlist.append(uDASH);
-    unitlist.append(duffs);
+    unitlist.append(ETXO);
+    unitlist.append(mETXO);
+    unitlist.append(uETXO);
+    unitlist.append(olegs);
     return unitlist;
 }
 
@@ -35,10 +29,10 @@ bool BitcoinUnits::valid(int unit)
 {
     switch(unit)
     {
-    case DASH:
-    case mDASH:
-    case uDASH:
-    case duffs:
+    case ETXO:
+    case mETXO:
+    case uETXO:
+    case olegs:
         return true;
     default:
         return false;
@@ -51,10 +45,10 @@ QString BitcoinUnits::name(int unit)
     {
         switch(unit)
         {
-            case DASH: return QString("DASH");
-            case mDASH: return QString("mDASH");
-            case uDASH: return QString::fromUtf8("μDASH");
-            case duffs: return QString("duffs");
+            case ETXO: return QString("ETXO");
+            case mETXO: return QString("mETXO");
+            case uETXO: return QString::fromUtf8("μETXO");
+            case olegs: return QString("olegs");
             default: return QString("???");
         }
     }
@@ -62,10 +56,10 @@ QString BitcoinUnits::name(int unit)
     {
         switch(unit)
         {
-            case DASH: return QString("tDASH");
-            case mDASH: return QString("mtDASH");
-            case uDASH: return QString::fromUtf8("μtDASH");
-            case duffs: return QString("tduffs");
+            case ETXO: return QString("tETXO");
+            case mETXO: return QString("mtETXO");
+            case uETXO: return QString::fromUtf8("μtETXO");
+            case olegs: return QString("tolegs");
             default: return QString("???");
         }
     }
@@ -77,10 +71,10 @@ QString BitcoinUnits::description(int unit)
     {
         switch(unit)
         {
-            case DASH: return QString("Dash");
-            case mDASH: return QString("Milli-Dash (1 / 1" THIN_SP_UTF8 "000)");
-            case uDASH: return QString("Micro-Dash (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
-            case duffs: return QString("Ten Nano-Dash (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case ETXO: return QString("Ethanexo");
+            case mETXO: return QString("Milli-Ethanexo (1 / 1" THIN_SP_UTF8 "000)");
+            case uETXO: return QString("Micro-Ethanexo (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case olegs: return QString("Ten Nano-Ethanexo (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
             default: return QString("???");
         }
     }
@@ -88,10 +82,10 @@ QString BitcoinUnits::description(int unit)
     {
         switch(unit)
         {
-            case DASH: return QString("TestDashs");
-            case mDASH: return QString("Milli-TestDash (1 / 1" THIN_SP_UTF8 "000)");
-            case uDASH: return QString("Micro-TestDash (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
-            case duffs: return QString("Ten Nano-TestDash (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case ETXO: return QString("TestEthanexos");
+            case mETXO: return QString("Milli-TestEthanexo (1 / 1" THIN_SP_UTF8 "000)");
+            case uETXO: return QString("Micro-TestEthanexo (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case olegs: return QString("Ten Nano-TestEthanexo (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
             default: return QString("???");
         }
     }
@@ -101,10 +95,10 @@ qint64 BitcoinUnits::factor(int unit)
 {
     switch(unit)
     {
-    case DASH:  return 100000000;
-    case mDASH: return 100000;
-    case uDASH: return 100;
-    case duffs: return 1;
+    case ETXO:  return 100000000;
+    case mETXO: return 100000;
+    case uETXO: return 100;
+    case olegs: return 1;
     default:   return 100000000;
     }
 }
@@ -113,15 +107,15 @@ int BitcoinUnits::decimals(int unit)
 {
     switch(unit)
     {
-    case DASH: return 8;
-    case mDASH: return 5;
-    case uDASH: return 2;
-    case duffs: return 0;
+    case ETXO: return 8;
+    case mETXO: return 5;
+    case uETXO: return 2;
+    case olegs: return 0;
     default: return 0;
     }
 }
 
-QString BitcoinUnits::format(int unit, const CAmount& nIn, bool fPlus, SeparatorStyle separators, bool justify)
+QString BitcoinUnits::format(int unit, const CAmount& nIn, bool fPlus, SeparatorStyle separators)
 {
     // Note: not using straight sprintf here because we do NOT want
     // localized number formatting.
@@ -133,15 +127,12 @@ QString BitcoinUnits::format(int unit, const CAmount& nIn, bool fPlus, Separator
     qint64 n_abs = (n > 0 ? n : -n);
     qint64 quotient = n_abs / coin;
     QString quotient_str = QString::number(quotient);
-    if (justify) {
-        quotient_str = quotient_str.rightJustified(MAX_DIGITS_BTC - num_decimals, ' ');
-    }
 
     // Use SI-style thin space separators as these are locale independent and can't be
     // confused with the decimal marker.
     QChar thin_sp(THIN_SP_CP);
     int q_size = quotient_str.size();
-    if (separators == SeparatorStyle::ALWAYS || (separators == SeparatorStyle::STANDARD && q_size > 4))
+    if (separators == separatorAlways || (separators == separatorStandard && q_size > 4))
         for (int i = 3; i < q_size; i += 3)
             quotient_str.insert(q_size - i, thin_sp);
 
@@ -180,18 +171,6 @@ QString BitcoinUnits::formatHtmlWithUnit(int unit, const CAmount& amount, bool p
     return QString("<span style='white-space: nowrap;'>%1</span>").arg(str);
 }
 
-QString BitcoinUnits::formatWithPrivacy(int unit, const CAmount& amount, SeparatorStyle separators, bool privacy)
-{
-    assert(amount >= 0);
-    QString value;
-    if (privacy) {
-        value = format(unit, 0, false, separators, true).replace('0', '#');
-    } else {
-        value = format(unit, amount, false, separators, true);
-    }
-    return value + QString(" ") + name(unit);
-}
-
 QString BitcoinUnits::floorWithUnit(int unit, const CAmount& amount, bool plussign, SeparatorStyle separators)
 {
     QSettings settings;
@@ -203,13 +182,9 @@ QString BitcoinUnits::floorWithUnit(int unit, const CAmount& amount, bool plussi
     return result + QString(" ") + name(unit);
 }
 
-QString BitcoinUnits::floorHtmlWithPrivacy(int unit, const CAmount& amount, SeparatorStyle separators, bool privacy)
+QString BitcoinUnits::floorHtmlWithUnit(int unit, const CAmount& amount, bool plussign, SeparatorStyle separators)
 {
-    assert(amount >= 0);
-    QString str = privacy
-        ? floorWithUnit(unit, 0, false, separators).replace('0', '#')
-        : floorWithUnit(unit, amount, false, separators);
-
+    QString str(floorWithUnit(unit, amount, plussign, separators));
     str.replace(QChar(THIN_SP_CP), QString(THIN_SP_HTML));
     return QString("<span style='white-space: nowrap;'>%1</span>").arg(str);
 }

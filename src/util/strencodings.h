@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,13 +11,12 @@
 
 #include <attributes.h>
 #include <span.h>
-#include <util/string.h>
 
-#include <charconv>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <vector>
+
+#define ARRAYLEN(array)     (sizeof(array)/sizeof((array)[0]))
 
 /** Used by SanitizeString() */
 enum SafeChars
@@ -29,48 +28,30 @@ enum SafeChars
 };
 
 /**
- * Used by ParseByteUnits()
- * Lowercase base 1000
- * Uppercase base 1024
-*/
-enum class ByteUnit : uint64_t {
-    NOOP = 1ULL,
-    k = 1000ULL,
-    K = 1024ULL,
-    m = 1'000'000ULL,
-    M = 1ULL << 20,
-    g = 1'000'000'000ULL,
-    G = 1ULL << 30,
-    t = 1'000'000'000'000ULL,
-    T = 1ULL << 40,
-};
-
-/**
 * Remove unsafe chars. Safe chars chosen to allow simple messages/URLs/email
 * addresses, but avoid anything even possibly remotely dangerous like & or >
 * @param[in] str    The string to sanitize
 * @param[in] rule   The set of safe chars to choose (default: least restrictive)
 * @return           A new string without unsafe chars
 */
-std::string SanitizeString(std::string_view str, int rule = SAFE_CHARS_DEFAULT);
-/** Parse the hex string into bytes (uint8_t or std::byte). Ignores whitespace. */
-template <typename Byte = uint8_t>
-std::vector<Byte> ParseHex(std::string_view str);
+std::string SanitizeString(const std::string& str, int rule = SAFE_CHARS_DEFAULT);
+std::vector<unsigned char> ParseHex(const char* psz);
+std::vector<unsigned char> ParseHex(const std::string& str);
 signed char HexDigit(char c);
 /* Returns true if each character in str is a hex character, and has an even
  * number of hex digits.*/
-bool IsHex(std::string_view str);
+bool IsHex(const std::string& str);
 /**
 * Return true if the string is a hex number, optionally prefixed with "0x"
 */
-bool IsHexNumber(std::string_view str);
-std::vector<unsigned char> DecodeBase64(const char* p, bool* pf_invalid);
-std::string DecodeBase64(const std::string& str, bool* pf_invalid);
+bool IsHexNumber(const std::string& str);
+std::vector<unsigned char> DecodeBase64(const char* p, bool* pf_invalid = nullptr);
+std::string DecodeBase64(const std::string& str, bool* pf_invalid = nullptr);
 std::string EncodeBase64(Span<const unsigned char> input);
-inline std::string EncodeBase64(Span<const std::byte> input) { return EncodeBase64(MakeUCharSpan(input)); }
-inline std::string EncodeBase64(const std::string& str) { return EncodeBase64(MakeUCharSpan(str)); }
-std::vector<unsigned char> DecodeBase32(const char* p, bool* pf_invalid);
-std::string DecodeBase32(const std::string& str, bool* pf_invalid);
+std::string EncodeBase64(const std::string& str);
+
+std::vector<unsigned char> DecodeBase32(const char* p, bool* pf_invalid = nullptr);
+std::string DecodeBase32(const std::string& str, bool* pf_invalid = nullptr);
 
 /**
  * Base32 encode.
@@ -86,34 +67,12 @@ std::string EncodeBase32(Span<const unsigned char> input, bool pad = true);
  */
 std::string EncodeBase32(const std::string& str, bool pad = true);
 
-void SplitHostPort(std::string in, uint16_t &portOut, std::string &hostOut);
-
-// LocaleIndependentAtoi is provided for backwards compatibility reasons.
-//
-// New code should use ToIntegral or the ParseInt* functions
-// which provide parse error feedback.
-//
-// The goal of LocaleIndependentAtoi is to replicate the exact defined behaviour
-// of atoi and atoi64 as they behave under the "C" locale.
-template <typename T>
-T LocaleIndependentAtoi(const std::string& str)
-{
-    static_assert(std::is_integral<T>::value);
-    T result;
-    // Emulate atoi(...) handling of white space and leading +/-.
-    std::string s = TrimString(str);
-    if (!s.empty() && s[0] == '+') {
-        if (s.length() >= 2 && s[1] == '-') {
-            return 0;
-        }
-        s = s.substr(1);
-    }
-    auto [_, error_condition] = std::from_chars(s.data(), s.data() + s.size(), result);
-    if (error_condition != std::errc{}) {
-        return 0;
-    }
-    return result;
-}
+void SplitHostPort(std::string in, int &portOut, std::string &hostOut);
+std::string i64tostr(int64_t n);
+std::string itostr(int n);
+int64_t atoi64(const char* psz);
+int64_t atoi64(const std::string& str);
+int atoi(const std::string& str);
 
 /**
  * Tests if the given character is a decimal digit.
@@ -141,26 +100,6 @@ constexpr inline bool IsSpace(char c) noexcept {
 }
 
 /**
- * Convert string to integral type T. Leading whitespace, a leading +, or any
- * trailing character fail the parsing. The required format expressed as regex
- * is `-?[0-9]+`. The minus sign is only permitted for signed integer types.
- *
- * @returns std::nullopt if the entire string could not be parsed, or if the
- *   parsed value is not in the range representable by the type T.
- */
-template <typename T>
-std::optional<T> ToIntegral(const std::string& str)
-{
-    static_assert(std::is_integral<T>::value);
-    T result;
-    const auto [first_nonmatching, error_condition] = std::from_chars(str.data(), str.data() + str.size(), result);
-    if (first_nonmatching != str.data() + str.size() || error_condition != std::errc{}) {
-        return std::nullopt;
-    }
-    return result;
-}
-
-/**
  * Convert string to signed 32-bit integer with strict parse error feedback.
  * @returns true if the entire string could be parsed as valid integer,
  *   false if not the entire string could be parsed or when overflow or underflow occurred.
@@ -182,13 +121,6 @@ std::optional<T> ToIntegral(const std::string& str)
 [[nodiscard]] bool ParseUInt8(const std::string& str, uint8_t *out);
 
 /**
- * Convert decimal string to unsigned 16-bit integer with strict parse error feedback.
- * @returns true if the entire string could be parsed as valid integer,
- *   false if the entire string could not be parsed or if overflow or underflow occurred.
- */
-[[nodiscard]] bool ParseUInt16(const std::string& str, uint16_t* out);
-
-/**
  * Convert decimal string to unsigned 32-bit integer with strict parse error feedback.
  * @returns true if the entire string could be parsed as valid integer,
  *   false if not the entire string could be parsed or when overflow or underflow occurred.
@@ -203,11 +135,17 @@ std::optional<T> ToIntegral(const std::string& str)
 [[nodiscard]] bool ParseUInt64(const std::string& str, uint64_t *out);
 
 /**
+ * Convert string to double with strict parse error feedback.
+ * @returns true if the entire string could be parsed as valid double,
+ *   false if not the entire string could be parsed or when overflow or underflow occurred.
+ */
+[[nodiscard]] bool ParseDouble(const std::string& str, double *out);
+
+/**
  * Convert a span of bytes to a lower-case hexadecimal string.
  */
 std::string HexStr(const Span<const uint8_t> s);
 inline std::string HexStr(const Span<const char> s) { return HexStr(MakeUCharSpan(s)); }
-inline std::string HexStr(const Span<const std::byte> s) { return HexStr(MakeUCharSpan(s)); }
 
 /**
  * Format a paragraph of text to a fixed width, adding spaces for
@@ -226,12 +164,12 @@ bool TimingResistantEqual(const T& a, const T& b)
     if (b.size() == 0) return a.size() == 0;
     size_t accumulator = a.size() ^ b.size();
     for (size_t i = 0; i < a.size(); i++)
-        accumulator |= size_t(a[i] ^ b[i%b.size()]);
+        accumulator |= a[i] ^ b[i%b.size()];
     return accumulator == 0;
 }
 
 /** Parse number as fixed point according to JSON number syntax.
- * See https://json.org/number.gif
+ * See http://json.org/number.gif
  * @returns true on success, false on error.
  * @note The result must be in the range (-10^18,10^18), otherwise an overflow error will trigger.
  */
@@ -324,17 +262,7 @@ std::string ToUpper(const std::string& str);
  */
 std::string Capitalize(std::string str);
 
-/**
- * Parse a string with suffix unit [k|K|m|M|g|G|t|T].
- * Must be a whole integer, fractions not allowed (0.5t), no whitespace or +-
- * Lowercase units are 1000 base. Uppercase units are 1024 base.
- * Examples: 2m,27M,19g,41T
- *
- * @param[in] str                  the string to convert into bytes
- * @param[in] default_multiplier   if no unit is found in str use this unit
- * @returns                        optional uint64_t bytes from str or nullopt
- *                                 if ToIntegral is false, str is empty, trailing whitespace or overflow
- */
-std::optional<uint64_t> ParseByteUnits(const std::string& str, ByteUnit default_multiplier);
+/** Parse an HD keypaths like "m/7/0'/2000". */
+bool ParseHDKeypath(const std::string& keypath_str, std::vector<uint32_t>& keypath);
 
 #endif // BITCOIN_UTIL_STRENCODINGS_H

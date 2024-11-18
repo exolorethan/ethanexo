@@ -1,29 +1,26 @@
-// Copyright (c) 2017-2020 The Bitcoin Core developers
+// Copyright (c) 2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_WALLETINITINTERFACE_H
 #define BITCOIN_WALLETINITINTERFACE_H
 
-class ArgsManager;
-class CoinJoinWalletManager;
-
-struct NodeContext;
+struct InitInterfaces;
 
 class WalletInitInterface {
 public:
     /** Is the wallet component enabled */
     virtual bool HasWalletSupport() const = 0;
     /** Get wallet help string */
-    virtual void AddWalletOptions(ArgsManager& argsman) const = 0;
+    virtual void AddWalletOptions() const = 0;
     /** Check wallet parameter interaction */
     virtual bool ParameterInteraction() const = 0;
-    /** Add wallets that should be opened to list of chain clients. */
-    virtual void Construct(NodeContext& node) const = 0;
+    /** Add wallets that should be opened to list of init interfaces. */
+    virtual void Construct(InitInterfaces& interfaces) const = 0;
 
-    // Dash Specific WalletInitInterface
+    // ETXO Specific WalletInitInterface
     virtual void AutoLockMasternodeCollaterals() const = 0;
-    virtual void InitCoinJoinSettings(const CoinJoinWalletManager& cjwalletman) const = 0;
+    virtual void InitCoinJoinSettings() const = 0;
     virtual bool InitAutoBackup() const = 0;
 
     virtual ~WalletInitInterface() {}

@@ -1,5 +1,5 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,8 +8,6 @@
 #include <chain.h>
 #include <interfaces/wallet.h>
 #include <interfaces/node.h>
-
-#include <wallet/ismine.h>
 
 #include <stdint.h>
 
@@ -39,7 +37,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
     auto node = interfaces::MakeNode();
     auto& coinJoinOptions = node->coinJoinOptions();
 
-    if (nNet > 0 || wtx.is_coinbase || wtx.is_platform_transfer)
+    if (nNet > 0 || wtx.is_coinbase)
     {
         //
         // Credit
@@ -56,7 +54,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
                 sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
                 if (wtx.txout_address_is_mine[i])
                 {
-                    // Received by Dash Address
+                    // Received by ETXO Address
                     sub.type = TransactionRecord::RecvWithAddress;
                     sub.strAddress = EncodeDestination(wtx.txout_address[i]);
                     sub.txDest = wtx.txout_address[i];
@@ -73,11 +71,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
                 {
                     // Generated
                     sub.type = TransactionRecord::Generated;
-                }
-                if (wtx.is_platform_transfer)
-                {
-                    // Withdrawal from platform
-                    sub.type = TransactionRecord::PlatformTransfer;
                 }
 
                 parts.append(sub);
@@ -115,10 +108,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
             // Payment to self by default
             sub.type = TransactionRecord::SendToSelf;
             sub.strAddress = "";
-            for (auto it = wtx.txout_address.begin(); it != wtx.txout_address.end(); ++it) {
-                if (it != wtx.txout_address.begin()) sub.strAddress += ", ";
-                sub.strAddress += EncodeDestination(*it);
-            }
 
             if(mapValue["DS"] == "1")
             {
@@ -126,7 +115,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
                 CTxDestination address;
                 if (ExtractDestination(wtx.tx->vout[0].scriptPubKey, address))
                 {
-                    // Sent to Dash Address
+                    // Sent to ETXO Address
                     sub.strAddress = EncodeDestination(address);
                     sub.txDest = address;
                     sub.updateLabel(wallet);
@@ -216,9 +205,9 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
                     continue;
                 }
 
-                if (!std::get_if<CNoDestination>(&wtx.txout_address[nOut]))
+                if (!boost::get<CNoDestination>(&wtx.txout_address[nOut]))
                 {
-                    // Sent to Dash Address
+                    // Sent to ETXO Address
                     sub.type = TransactionRecord::SendToAddress;
                     sub.strAddress = EncodeDestination(wtx.txout_address[nOut]);
                     sub.txDest = wtx.txout_address[nOut];
@@ -262,7 +251,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(interfaces::Wal
     return parts;
 }
 
-void TransactionRecord::updateStatus(const interfaces::WalletTxStatus& wtx, const uint256& block_hash, int numBlocks, int chainLockHeight, int64_t block_time)
+void TransactionRecord::updateStatus(const interfaces::WalletTxStatus& wtx, int numBlocks, int chainLockHeight, int64_t block_time)
 {
     // Determine transaction status
 
@@ -274,7 +263,7 @@ void TransactionRecord::updateStatus(const interfaces::WalletTxStatus& wtx, cons
         idx);
     status.countsForBalance = wtx.is_trusted && !(wtx.blocks_to_maturity > 0);
     status.depth = wtx.depth_in_main_chain;
-    status.m_cur_block_hash = block_hash;
+    status.cur_num_blocks = numBlocks;
     status.cachedChainLockHeight = chainLockHeight;
     status.lockedByChainLocks = wtx.is_chainlocked;
     status.lockedByInstantSend = wtx.is_islocked;
@@ -336,10 +325,9 @@ void TransactionRecord::updateStatus(const interfaces::WalletTxStatus& wtx, cons
     status.needsUpdate = false;
 }
 
-bool TransactionRecord::statusUpdateNeeded(const uint256& block_hash, int chainLockHeight) const
+bool TransactionRecord::statusUpdateNeeded(int numBlocks, int chainLockHeight) const
 {
-    assert(!block_hash.IsNull());
-    return status.m_cur_block_hash != block_hash || status.needsUpdate
+    return status.cur_num_blocks != numBlocks || status.needsUpdate
         || (!status.lockedByChainLocks && status.cachedChainLockHeight != chainLockHeight);
 }
 

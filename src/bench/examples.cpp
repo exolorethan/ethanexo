@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2020 The Bitcoin Core developers
+// Copyright (c) 2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -13,7 +13,7 @@ static void Trig(benchmark::Bench& bench)
 {
     double d = 0.01;
     bench.run([&] {
-        sum = sum + sin(d);
+        sum += sin(d);
         d += 0.000001;
     });
 }

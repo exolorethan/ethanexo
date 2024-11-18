@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2023 The Dash Core developers
+// Copyright (c) 2018-2020 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,12 +11,10 @@ class CBatchedLogger
 {
 private:
     bool accept;
-    std::string m_logging_function;;
-    std::string m_source_file;
-    const int m_source_line;
+    std::string header;
     std::string msg;
 public:
-    CBatchedLogger(BCLog::LogFlags _category, const std::string& logging_function, const std::string& m_source_file, int m_source_line);
+    CBatchedLogger(BCLog::LogFlags _category, const std::string& _header);
     virtual ~CBatchedLogger();
 
     template<typename... Args>

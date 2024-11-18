@@ -1,24 +1,24 @@
-// Copyright (c) 2014-2023 The Dash Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <governance/common.h>
+#include <governance/object.h>
 #include <governance/validators.h>
 
 #include <key_io.h>
 #include <timedata.h>
 #include <tinyformat.h>
 #include <util/strencodings.h>
-#include <util/underlying.h>
 
 #include <algorithm>
 
 const size_t MAX_DATA_SIZE = 512;
 const size_t MAX_NAME_SIZE = 40;
 
-CProposalValidator::CProposalValidator(const std::string& strHexData, bool fAllowScript) :
+CProposalValidator::CProposalValidator(const std::string& strHexData, bool fAllowLegacyFormat, bool fAllowScript) :
     objJSON(UniValue::VOBJ),
     fJSONValid(false),
+    fAllowLegacyFormat(fAllowLegacyFormat),
     fAllowScript(fAllowScript),
     strErrorMessages()
 {
@@ -78,8 +78,8 @@ bool CProposalValidator::ValidateType()
         return false;
     }
 
-    if (nType != ToUnderlying(GovernanceObject::PROPOSAL)) {
-        strErrorMessages += strprintf("type is not %d;", ToUnderlying(GovernanceObject::PROPOSAL));
+    if (nType != GOVERNANCE_OBJECT_PROPOSAL) {
+        strErrorMessages += strprintf("type is not %d;", GOVERNANCE_OBJECT_PROPOSAL);
         return false;
     }
 
@@ -96,11 +96,6 @@ bool CProposalValidator::ValidateName()
 
     if (strName.size() > MAX_NAME_SIZE) {
         strErrorMessages += strprintf("name exceeds %lu characters;", MAX_NAME_SIZE);
-        return false;
-    }
-
-    if (strName.empty()) {
-        strErrorMessages += "name cannot be empty;";
         return false;
     }
 
@@ -185,7 +180,7 @@ bool CProposalValidator::ValidatePaymentAddress()
         return false;
     }
 
-    const ScriptHash *scriptID = std::get_if<ScriptHash>(&dest);
+    const CScriptID *scriptID = boost::get<CScriptID>(&dest);
     if (!fAllowScript && scriptID) {
         strErrorMessages += "script addresses are not supported;";
         return false;
@@ -236,7 +231,13 @@ void CProposalValidator::ParseJSONData(const std::string& strJSONData)
         if (obj.isObject()) {
             objJSON = obj;
         } else {
-            throw std::runtime_error("Proposal must be a JSON object");
+            if (fAllowLegacyFormat) {
+                std::vector<UniValue> arr1 = obj.getValues();
+                std::vector<UniValue> arr2 = arr1.at(0).getValues();
+                objJSON = arr2.at(1);
+            } else {
+                throw std::runtime_error("Legacy proposal serialization format not allowed");
+            }
         }
 
         fJSONValid = true;

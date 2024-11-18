@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -72,6 +72,17 @@ class SCOPED_LOCKABLE StdLockGuard : public std::lock_guard<StdMutex>
 public:
     explicit StdLockGuard(StdMutex& cs) EXCLUSIVE_LOCK_FUNCTION(cs) : std::lock_guard<StdMutex>(cs) {}
     ~StdLockGuard() UNLOCK_FUNCTION() {}
+};
+
+// Utility class for indicating to compiler thread analysis that a mutex is
+// locked (when it couldn't be determined otherwise).
+struct SCOPED_LOCKABLE LockAnnotation
+{
+    template <typename Mutex>
+    explicit LockAnnotation(Mutex& mutex) EXCLUSIVE_LOCK_FUNCTION(mutex)
+    {
+    }
+    ~LockAnnotation() UNLOCK_FUNCTION() {}
 };
 
 #endif // BITCOIN_THREADSAFETY_H

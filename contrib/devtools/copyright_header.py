@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2016-2020 The Bitcoin Core developers
-# Copyright (c) 2019-2024 The Dash Core developers
+# Copyright (c) 2016-2019 The Bitcoin Core developers
+# Copyright (c) 2019 The Dash Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -17,19 +17,11 @@ import os
 
 EXCLUDE = [
     # auto generated:
-    'src/qt/dashstrings.cpp',
+    'src/qt/bitcoinstrings.cpp',
     'src/chainparamsseeds.h',
     # other external copyrights:
-    'src/bench/nanobench.h',
-    'src/crypto/*',
-    'src/ctpl_stl.h',
-    'src/reverse_iterator.h',
-    'src/test/fuzz/FuzzedDataProvider.h',
     'src/tinyformat.h',
-    'src/util/expected.h',
-    'src/wallet/bip39.cpp',
-    'src/wallet/bip39.h',
-    'src/wallet/bip39_english.h',
+    'src/bench/nanobench.h',
     'test/functional/test_framework/bignum.py',
     # python init:
     '*__init__.py',
@@ -38,15 +30,11 @@ EXCLUDE_COMPILED = re.compile('|'.join([fnmatch.translate(m) for m in EXCLUDE]))
 
 EXCLUDE_DIRS = [
     # git subtrees
-    "src/crc32c/",
     "src/crypto/ctaes/",
-    "src/dashbls/",
-    "src/gsl/",
-    "src/immer/",
     "src/leveldb/",
-    "src/minisketch",
     "src/secp256k1/",
     "src/univalue/",
+    "src/crc32c/",
 ]
 
 INCLUDE = ['*.h', '*.cpp', '*.cc', '*.c', '*.mm', '*.py', '*.sh', '*.bash-completion']
@@ -105,7 +93,7 @@ def compile_copyright_regex(copyright_style, year_style, name):
 EXPECTED_HOLDER_NAMES = [
     r"Satoshi Nakamoto",
     r"The Bitcoin Core developers",
-    r"The Dash Core developers",
+    r"The Ethanexo Core developers",
     r"BitPay Inc\.",
     r"University of Illinois at Urbana-Champaign\.",
     r"Pieter Wuille",
@@ -116,8 +104,6 @@ EXPECTED_HOLDER_NAMES = [
     r"Intel Corporation ?",
     r"The Zcash developers",
     r"Jeremy Rubin",
-    r"Statoshi Developers",
-    r"Vincent Thiery",
 ]
 
 DOMINANT_STYLE_COMPILED = {}
@@ -287,7 +273,7 @@ Usage:
     $ ./copyright_header.py report <base_directory> [verbose]
 
 Arguments:
-    <base_directory> - The base directory of a Dash Core source code repository.
+    <base_directory> - The base directory of a Ethanexo Core source code repository.
     [verbose] - Includes a list of every file of each subcategory in the report.
 """
 
@@ -350,7 +336,7 @@ def write_file_lines(filename, file_lines):
 COPYRIGHT = r'Copyright \(c\)'
 YEAR = "20[0-9][0-9]"
 YEAR_RANGE = '(%s)(-%s)?' % (YEAR, YEAR)
-HOLDER = 'The Dash Core developers'
+HOLDER = 'The Ethanexo Core developers'
 UPDATEABLE_LINE_COMPILED = re.compile(' '.join([COPYRIGHT, YEAR_RANGE, HOLDER]))
 
 def get_updatable_copyright_line(file_lines):
@@ -415,24 +401,24 @@ def exec_update_header_year(base_directory):
 ################################################################################
 
 UPDATE_USAGE = """
-Updates all the copyright headers of "The Dash Core developers" which were
+Updates all the copyright headers of "The Ethanexo Core developers" which were
 changed in a year more recent than is listed. For example:
 
-// Copyright (c) <firstYear>-<lastYear> The Dash Core developers
+// Copyright (c) <firstYear>-<lastYear> The Ethanexo Core developers
 
 will be updated to:
 
-// Copyright (c) <firstYear>-<lastModifiedYear> The Dash Core developers
+// Copyright (c) <firstYear>-<lastModifiedYear> The Ethanexo Core developers
 
 where <lastModifiedYear> is obtained from the 'git log' history.
 
 This subcommand also handles copyright headers that have only a single year. In those cases:
 
-// Copyright (c) <year> The Dash Core developers
+// Copyright (c) <year> The Ethanexo Core developers
 
 will be updated to:
 
-// Copyright (c) <year>-<lastModifiedYear> The Dash Core developers
+// Copyright (c) <year>-<lastModifiedYear> The Ethanexo Core developers
 
 where the update is appropriate.
 
@@ -440,7 +426,7 @@ Usage:
     $ ./copyright_header.py update <base_directory>
 
 Arguments:
-    <base_directory> - The base directory of Dash Core source code repository.
+    <base_directory> - The base directory of Ethanexo Core source code repository.
 """
 
 def print_file_action_message(filename, action):
@@ -465,7 +451,7 @@ def get_header_lines(header, start_year, end_year):
     return [line + '\n' for line in lines]
 
 CPP_HEADER = '''
-// Copyright (c) %s The Dash Core developers
+// Copyright (c) %s The Ethanexo Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
@@ -473,14 +459,14 @@ CPP_HEADER = '''
 def get_cpp_header_lines_to_insert(start_year, end_year):
     return reversed(get_header_lines(CPP_HEADER, start_year, end_year))
 
-SCRIPT_HEADER = '''
-# Copyright (c) %s The Dash Core developers
+PYTHON_HEADER = '''
+# Copyright (c) %s The Ethanexo Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
 
-def get_script_header_lines_to_insert(start_year, end_year):
-    return reversed(get_header_lines(SCRIPT_HEADER, start_year, end_year))
+def get_python_header_lines_to_insert(start_year, end_year):
+    return reversed(get_header_lines(PYTHON_HEADER, start_year, end_year))
 
 ################################################################################
 # query git for year of last change
@@ -509,18 +495,17 @@ def file_has_hashbang(file_lines):
         return False
     return file_lines[0][:2] == '#!'
 
-def insert_script_header(filename, file_lines, start_year, end_year):
+def insert_python_header(filename, file_lines, start_year, end_year):
     if file_has_hashbang(file_lines):
         insert_idx = 1
     else:
         insert_idx = 0
-    header_lines = get_script_header_lines_to_insert(start_year, end_year)
+    header_lines = get_python_header_lines_to_insert(start_year, end_year)
     for line in header_lines:
         file_lines.insert(insert_idx, line)
     write_file_lines(filename, file_lines)
 
 def insert_cpp_header(filename, file_lines, start_year, end_year):
-    file_lines.insert(0, '\n')
     header_lines = get_cpp_header_lines_to_insert(start_year, end_year)
     for line in header_lines:
         file_lines.insert(0, line)
@@ -529,11 +514,11 @@ def insert_cpp_header(filename, file_lines, start_year, end_year):
 def exec_insert_header(filename, style):
     file_lines = read_file_lines(filename)
     if file_already_has_core_copyright(file_lines):
-        sys.exit('*** %s already has a copyright by The Dash Core developers'
+        sys.exit('*** %s already has a copyright by The Ethanexo Core developers'
                  % (filename))
     start_year, end_year = get_git_change_year_range(filename)
-    if style in ['python', 'shell']:
-        insert_script_header(filename, file_lines, start_year, end_year)
+    if style == 'python':
+        insert_python_header(filename, file_lines, start_year, end_year)
     else:
         insert_cpp_header(filename, file_lines, start_year, end_year)
 
@@ -542,7 +527,7 @@ def exec_insert_header(filename, style):
 ################################################################################
 
 INSERT_USAGE = """
-Inserts a copyright header for "The Dash Core developers" at the top of the
+Inserts a copyright header for "The Ethanexo Core developers" at the top of the
 file in either Python or C++ style as determined by the file extension. If the
 file is a Python file and it has a '#!' starting the first line, the header is
 inserted in the line below it.
@@ -556,14 +541,14 @@ where <year_introduced> is according to the 'git log' history. If
 
 "<current_year>"
 
-If the file already has a copyright for "The Dash Core developers", the
+If the file already has a copyright for "The Ethanexo Core developers", the
 script will exit.
 
 Usage:
     $ ./copyright_header.py insert <file>
 
 Arguments:
-    <file> - A source file in the Dash Core repository.
+    <file> - A source file in the Ethanexo Core repository.
 """
 
 def insert_cmd(argv):
@@ -574,13 +559,11 @@ def insert_cmd(argv):
     if not os.path.isfile(filename):
         sys.exit("*** bad filename: %s" % filename)
     _, extension = os.path.splitext(filename)
-    if extension not in ['.h', '.cpp', '.cc', '.c', '.py', '.sh']:
+    if extension not in ['.h', '.cpp', '.cc', '.c', '.py']:
         sys.exit("*** cannot insert for file extension %s" % extension)
 
     if extension == '.py':
         style = 'python'
-    elif extension == '.sh':
-        style = 'shell'
     else:
         style = 'cpp'
     exec_insert_header(filename, style)
@@ -590,7 +573,7 @@ def insert_cmd(argv):
 ################################################################################
 
 USAGE = """
-copyright_header.py - utilities for managing copyright headers of 'The Dash
+copyright_header.py - utilities for managing copyright headers of 'The Ethanexo
 Core developers' in repository source files.
 
 Usage:

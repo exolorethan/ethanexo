@@ -22,7 +22,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QRImageWidget" name="lblQRCode">
+    <widget class="QRGeneralImageWidget" name="lblQRCode">
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -82,7 +82,7 @@
      <item>
       <widget class="QPushButton" name="button_saveImage">
        <property name="text">
-        <string>&amp;Save Image…</string>
+        <string>&amp;Save Image...</string>
        </property>
        <property name="autoDefault">
         <bool>false</bool>
@@ -115,9 +115,9 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>QRImageWidget</class>
+   <class>QRGeneralImageWidget</class>
    <extends>QLabel</extends>
-   <header>qt/qrimagewidget.h</header>
+   <header>qt/qrdialog.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

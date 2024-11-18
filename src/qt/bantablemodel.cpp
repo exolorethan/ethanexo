@@ -1,19 +1,17 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <qt/bantablemodel.h>
 
+#include <qt/clientmodel.h>
+
 #include <interfaces/node.h>
-#include <net_types.h> // For banmap_t
 
-#include <utility>
+#include <algorithm>
 
-#include <QDateTime>
+#include <QDebug>
 #include <QList>
-#include <QLocale>
-#include <QModelIndex>
-#include <QVariant>
 
 bool BannedNodeLessThan::operator()(const CCombinedBan& left, const CCombinedBan& right) const
 {
@@ -23,13 +21,15 @@ bool BannedNodeLessThan::operator()(const CCombinedBan& left, const CCombinedBan
     if (order == Qt::DescendingOrder)
         std::swap(pLeft, pRight);
 
-    switch (static_cast<BanTableModel::ColumnIndex>(column)) {
+    switch(column)
+    {
     case BanTableModel::Address:
         return pLeft->subnet.ToString().compare(pRight->subnet.ToString()) < 0;
     case BanTableModel::Bantime:
         return pLeft->banEntry.nBanUntil < pRight->banEntry.nBanUntil;
-    } // no default case, so the compiler can warn about missing cases
-    assert(false);
+    }
+
+    return false;
 }
 
 // private implementation
@@ -78,9 +78,10 @@ public:
     }
 };
 
-BanTableModel::BanTableModel(interfaces::Node& node, QObject* parent) :
+BanTableModel::BanTableModel(interfaces::Node& node, ClientModel *parent) :
     QAbstractTableModel(parent),
-    m_node(node)
+    m_node(node),
+    clientModel(parent)
 {
     columns << tr("IP/Netmask") << tr("Banned Until");
     priv.reset(new BanTablePriv());
@@ -117,17 +118,16 @@ QVariant BanTableModel::data(const QModelIndex &index, int role) const
 
     CCombinedBan *rec = static_cast<CCombinedBan*>(index.internalPointer());
 
-    const auto column = static_cast<ColumnIndex>(index.column());
     if (role == Qt::DisplayRole) {
-        switch (column) {
+        switch(index.column())
+        {
         case Address:
             return QString::fromStdString(rec->subnet.ToString());
         case Bantime:
             QDateTime date = QDateTime::fromMSecsSinceEpoch(0);
             date = date.addSecs(rec->banEntry.nBanUntil);
-            return QLocale::system().toString(date, QLocale::LongFormat);
-        } // no default case, so the compiler can warn about missing cases
-        assert(false);
+            return date.toString(Qt::SystemLocaleLongDate);
+        }
     }
 
     return QVariant();

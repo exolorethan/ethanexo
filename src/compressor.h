@@ -1,43 +1,21 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2014 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_COMPRESSOR_H
 #define BITCOIN_COMPRESSOR_H
 
-#include <prevector.h>
 #include <primitives/transaction.h>
 #include <script/script.h>
 #include <serialize.h>
 #include <span.h>
 
-/**
- * This saves us from making many heap allocations when serializing
- * and deserializing compressed scripts.
- *
- * This prevector size is determined by the largest .resize() in the
- * CompressScript function. The largest compressed script format is a
- * compressed public key, which is 33 bytes.
- */
-using CompressedScript = prevector<33, unsigned char>;
-
-
-bool CompressScript(const CScript& script, CompressedScript& out);
+bool CompressScript(const CScript& script, std::vector<unsigned char> &out);
 unsigned int GetSpecialScriptSize(unsigned int nSize);
-bool DecompressScript(CScript& script, unsigned int nSize, const CompressedScript& in);
+bool DecompressScript(CScript& script, unsigned int nSize, const std::vector<unsigned char> &out);
 
-/**
- * Compress amount.
- *
- * nAmount is of type uint64_t and thus cannot be negative. If you're passing in
- * a CAmount (int64_t), make sure to properly handle the case where the amount
- * is negative before calling CompressAmount(...).
- *
- * @pre Function defined only for 0 <= nAmount <= MAX_MONEY.
- */
 uint64_t CompressAmount(uint64_t nAmount);
-
 uint64_t DecompressAmount(uint64_t nAmount);
 
 /** Compact serializer for scripts.
@@ -63,14 +41,14 @@ struct ScriptCompression
 
     template<typename Stream>
     void Ser(Stream &s, const CScript& script) {
-        CompressedScript compr;
+        std::vector<unsigned char> compr;
         if (CompressScript(script, compr)) {
-            s << Span{compr};
+            s << MakeSpan(compr);
             return;
         }
         unsigned int nSize = script.size() + nSpecialScripts;
         s << VARINT(nSize);
-        s << Span{script};
+        s << MakeSpan(script);
     }
 
     template<typename Stream>
@@ -78,8 +56,8 @@ struct ScriptCompression
         unsigned int nSize = 0;
         s >> VARINT(nSize);
         if (nSize < nSpecialScripts) {
-            CompressedScript vch(GetSpecialScriptSize(nSize), 0x00);
-            s >> Span{vch};
+            std::vector<unsigned char> vch(GetSpecialScriptSize(nSize), 0x00);
+            s >> MakeSpan(vch);
             DecompressScript(script, nSize, vch);
             return;
         }
@@ -90,7 +68,7 @@ struct ScriptCompression
             s.ignore(nSize);
         } else {
             script.resize(nSize);
-            s >> Span{script};
+            s >> MakeSpan(script);
         }
     }
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2024 The Dash Core developers
+// Copyright (c) 2018-2020 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -13,15 +13,11 @@
 #include <set>
 
 class CDataStream;
-class CDeterministicMNManager;
-class ChainstateManager;
 class CInv;
 class CScheduler;
 
 namespace llmq
 {
-
-enum class QuorumPhase;
 
 class CDKGDebugMemberStatus
 {
@@ -39,7 +35,7 @@ public:
             bool receivedComplaint : 1;
             bool receivedJustification : 1;
             bool receivedPrematureCommitment : 1;
-        } statusBits;
+        };
         uint8_t statusBitset;
     };
 
@@ -55,7 +51,7 @@ public:
     Consensus::LLMQType llmqType{Consensus::LLMQType::LLMQ_NONE};
     uint256 quorumHash;
     uint32_t quorumHeight{0};
-    QuorumPhase phase{0};
+    uint8_t phase{0};
 
     union {
         struct
@@ -67,7 +63,7 @@ public:
             bool sentPrematureCommitment : 1;
 
             bool aborted : 1;
-        } statusBits;
+        };
         uint8_t statusBitset;
     };
 
@@ -76,8 +72,7 @@ public:
 public:
     CDKGDebugSessionStatus() : statusBitset(0) {}
 
-    UniValue ToJson(CDeterministicMNManager& dmnman, const ChainstateManager& chainman,
-                    int quorumIndex, int detailLevel) const;
+    UniValue ToJson(int detailLevel) const;
 };
 
 class CDKGDebugStatus
@@ -85,31 +80,31 @@ class CDKGDebugStatus
 public:
     int64_t nTime{0};
 
-    std::map<std::pair<Consensus::LLMQType, int>, CDKGDebugSessionStatus> sessions;
-    //std::map<Consensus::LLMQType, CDKGDebugSessionStatus> sessions;
+    std::map<Consensus::LLMQType, CDKGDebugSessionStatus> sessions;
 
 public:
-    UniValue ToJson(CDeterministicMNManager& dmnman, const ChainstateManager& chainman,
-                    int detailLevel) const;
+    UniValue ToJson(int detailLevel) const;
 };
 
 class CDKGDebugManager
 {
 private:
-    mutable Mutex cs_lockStatus;
-    CDKGDebugStatus localStatus GUARDED_BY(cs_lockStatus);
+    mutable CCriticalSection cs;
+    CDKGDebugStatus localStatus GUARDED_BY(cs);
 
 public:
     CDKGDebugManager();
 
     void GetLocalDebugStatus(CDKGDebugStatus& ret) const;
 
-    void ResetLocalSessionStatus(Consensus::LLMQType llmqType, int quorumIndex);
-    void InitLocalSessionStatus(const Consensus::LLMQParams& llmqParams, int quorumIndex, const uint256& quorumHash, int quorumHeight);
+    void ResetLocalSessionStatus(Consensus::LLMQType llmqType);
+    void InitLocalSessionStatus(const Consensus::LLMQParams& llmqParams, const uint256& quorumHash, int quorumHeight);
 
-    void UpdateLocalSessionStatus(Consensus::LLMQType llmqType, int quorumIndex, std::function<bool(CDKGDebugSessionStatus& status)>&& func);
-    void UpdateLocalMemberStatus(Consensus::LLMQType llmqType, int quorumIndex, size_t memberIdx, std::function<bool(CDKGDebugMemberStatus& status)>&& func);
+    void UpdateLocalSessionStatus(Consensus::LLMQType llmqType, std::function<bool(CDKGDebugSessionStatus& status)>&& func);
+    void UpdateLocalMemberStatus(Consensus::LLMQType llmqType, size_t memberIdx, std::function<bool(CDKGDebugMemberStatus& status)>&& func);
 };
+
+extern CDKGDebugManager* quorumDKGDebugManager;
 
 } // namespace llmq
 

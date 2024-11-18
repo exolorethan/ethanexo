@@ -1,17 +1,21 @@
-// Copyright (c) 2011-2020 The Bitcoin Core developers
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2021 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
 #include <qt/utilitydialog.h>
 
 #include <qt/forms/ui_helpmessagedialog.h>
 
+#include <qt/bitcoingui.h>
 #include <qt/guiutil.h>
+#ifdef ENABLE_BIP70
+#include <qt/paymentrequestplus.h>
+#endif
 
 #include <clientversion.h>
 #include <init.h>
@@ -22,26 +26,33 @@
 
 #include <QCloseEvent>
 #include <QLabel>
-#include <QMainWindow>
 #include <QRegExp>
-#include <QTextCursor>
 #include <QTextTable>
+#include <QTextCursor>
 #include <QVBoxLayout>
 
 /** "Help message" or "About" dialog box */
-HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
-    QDialog(parent, GUIUtil::dialog_flags),
+HelpMessageDialog::HelpMessageDialog(interfaces::Node& node, QWidget *parent, HelpMode helpMode) :
+    QDialog(parent),
     ui(new Ui::HelpMessageDialog)
 {
     ui->setupUi(this);
 
     GUIUtil::updateFonts();
 
-    QString version = QString{PACKAGE_NAME} + " " + tr("version") + " " + QString::fromStdString(FormatFullVersion());
+    QString version = tr(PACKAGE_NAME) + " " + tr("version") + " " + QString::fromStdString(FormatFullVersion());
+    /* On x86 add a bit specifier to the version so that users can distinguish between
+     * 32 and 64 bit builds. On other architectures, 32/64 bit may be more ambiguous.
+     */
+#if defined(__x86_64__)
+    version += " " + tr("(%1-bit)").arg(64);
+#elif defined(__i386__ )
+    version += " " + tr("(%1-bit)").arg(32);
+#endif
 
     if (helpMode == about)
     {
-        setWindowTitle(tr("About %1").arg(PACKAGE_NAME));
+        setWindowTitle(tr("About %1").arg(tr(PACKAGE_NAME)));
 
         std::string licenseInfo = LicenseInfo();
         /// HTML-format the license message from the core
@@ -62,7 +73,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
         ui->helpMessage->setVisible(false);
     } else if (helpMode == cmdline) {
         setWindowTitle(tr("Command-line options"));
-        QString header = "Usage:  dash-qt [command-line options]                     \n";
+        QString header = "Usage:  ethanexo-qt [command-line options]                     \n";
         QTextCursor cursor(ui->helpMessage->document());
         cursor.insertText(version);
         cursor.insertBlock();
@@ -115,13 +126,13 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
         ui->aboutMessage->setText(tr("\
 <h3>%1 Basics</h3> \
 %1 gives you true financial privacy by obscuring the origins of your funds. \
-All the Dash in your wallet is comprised of different \"inputs\" which you can think of as separate, discrete coins.<br> \
+All the ETXO in your wallet is comprised of different \"inputs\" which you can think of as separate, discrete coins.<br> \
 %1 uses an innovative process to mix your inputs with the inputs of two or more other people, without having your coins ever leave your wallet. \
 You retain control of your money at all times.<hr> \
 <b>The %1 process works like this:</b>\
 <ol type=\"1\"> \
 <li>%1 begins by breaking your transaction inputs down into standard denominations. \
-These denominations are 0.001 DASH, 0.01 DASH, 0.1 DASH, 1 DASH and 10 DASH -- sort of like the paper money you use every day.</li> \
+These denominations are 0.001 ETXO, 0.01 ETXO, 0.1 ETXO, 1 ETXO and 10 ETXO -- sort of like the paper money you use every day.</li> \
 <li>Your wallet then sends requests to specially configured software nodes on the network, called \"masternodes.\" \
 These masternodes are informed then that you are interested in mixing a certain denomination. \
 No identifiable information is sent to the masternodes, so they never know \"who\" you are.</li> \
@@ -146,8 +157,6 @@ For more information, see the <a style=\"%2\" href=\"%3\">%1 documentation</a>."
         ui->aboutMessage->setWordWrap(true);
         ui->helpMessage->setVisible(false);
     }
-
-    GUIUtil::handleCloseWindowShortcut(this);
 }
 
 HelpMessageDialog::~HelpMessageDialog()
@@ -158,7 +167,7 @@ HelpMessageDialog::~HelpMessageDialog()
 void HelpMessageDialog::printToConsole()
 {
     // On other operating systems, the expected action is to print the message to the console.
-    tfm::format(std::cout, "%s", qPrintable(text));
+    tfm::format(std::cout, "%s\n", qPrintable(text));
 }
 
 void HelpMessageDialog::showOrPrint()
@@ -179,28 +188,27 @@ void HelpMessageDialog::on_okButton_accepted()
 
 
 /** "Shutdown" window */
-ShutdownWindow::ShutdownWindow(QWidget *parent, Qt::WindowFlags f):
+ShutdownWindow::ShutdownWindow(interfaces::Node& node, QWidget *parent, Qt::WindowFlags f):
     QWidget(parent, f)
 {
     setObjectName("ShutdownWindow");
 
     QVBoxLayout *layout = new QVBoxLayout();
     layout->addWidget(new QLabel(
-        tr("%1 is shutting down…").arg(PACKAGE_NAME) + "<br /><br />" +
+        tr("%1 is shutting down...").arg(tr(PACKAGE_NAME)) + "<br /><br />" +
         tr("Do not shut down the computer until this window disappears.")));
     setLayout(layout);
 
     GUIUtil::updateFonts();
-
-    GUIUtil::handleCloseWindowShortcut(this);
 }
 
-QWidget* ShutdownWindow::showShutdownWindow(QMainWindow* window)
+QWidget *ShutdownWindow::showShutdownWindow(interfaces::Node& node, BitcoinGUI *window)
 {
-    assert(window != nullptr);
+    if (!window)
+        return nullptr;
 
     // Show a simple window indicating shutdown status
-    QWidget *shutdownWindow = new ShutdownWindow();
+    QWidget *shutdownWindow = new ShutdownWindow(node);
     shutdownWindow->setWindowTitle(window->windowTitle());
 
     // Center shutdown window at where main window was

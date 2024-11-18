@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2015-2020 The Bitcoin Core developers
+# Copyright (c) 2015-2018 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """
@@ -21,14 +21,7 @@ Invalid tx cases not covered here can be found by running:
 """
 import abc
 
-from typing import Optional
-from test_framework.messages import (
-    COutPoint,
-    CTransaction,
-    CTxIn,
-    CTxOut,
-    MAX_MONEY,
-)
+from test_framework.messages import CTransaction, CTxIn, CTxOut, COutPoint
 from test_framework import script as sc
 from test_framework.blocktools import create_tx_with_script, MAX_BLOCK_SIGOPS
 
@@ -40,7 +33,7 @@ class BadTxTemplate:
     __metaclass__ = abc.ABCMeta
 
     # The expected error code given by bitcoind upon submission of the tx.
-    reject_reason: Optional[str] = ""
+    reject_reason = ""
 
     # Only specified if it differs from mempool acceptance error.
     block_reject_reason = ""
@@ -65,7 +58,7 @@ class BadTxTemplate:
 
 class OutputMissing(BadTxTemplate):
     reject_reason = "bad-txns-vout-empty"
-    expect_disconnect = True
+    expect_disconnect = False
 
     def get_tx(self):
         tx = CTransaction()
@@ -76,11 +69,11 @@ class OutputMissing(BadTxTemplate):
 
 class InputMissing(BadTxTemplate):
     reject_reason = "bad-txns-vin-empty"
-    expect_disconnect = True
+    expect_disconnect = False
 
-    # We use a blank transaction to align with bitcoin's implementation
     def get_tx(self):
         tx = CTransaction()
+        tx.vout.append(CTxOut(0, sc.CScript([sc.OP_TRUE] * 100)))
         tx.calc_sha256()
         return tx
 
@@ -130,19 +123,6 @@ class DuplicateInput(BadTxTemplate):
         return tx
 
 
-class PrevoutNullInput(BadTxTemplate):
-    reject_reason = 'bad-txns-prevout-null'
-    expect_disconnect = True
-
-    def get_tx(self):
-        tx = CTransaction()
-        tx.vin.append(self.valid_txin)
-        tx.vin.append(CTxIn(COutPoint(hash=0, n=0xffffffff)))
-        tx.vout.append(CTxOut(1, basic_p2sh))
-        tx.calc_sha256()
-        return tx
-
-
 class NonexistentInput(BadTxTemplate):
     reject_reason = None  # Added as an orphan tx.
     expect_disconnect = False
@@ -165,31 +145,12 @@ class SpendTooMuch(BadTxTemplate):
             self.spend_tx, 0, script_pub_key=basic_p2sh, amount=(self.spend_avail + 1))
 
 
-class CreateNegative(BadTxTemplate):
+class SpendNegative(BadTxTemplate):
     reject_reason = 'bad-txns-vout-negative'
     expect_disconnect = True
 
     def get_tx(self):
         return create_tx_with_script(self.spend_tx, 0, amount=-1)
-
-
-class CreateTooLarge(BadTxTemplate):
-    reject_reason = 'bad-txns-vout-toolarge'
-    expect_disconnect = True
-
-    def get_tx(self):
-        return create_tx_with_script(self.spend_tx, 0, amount=MAX_MONEY + 1)
-
-
-class CreateSumTooLarge(BadTxTemplate):
-    reject_reason = 'bad-txns-txouttotal-toolarge'
-    expect_disconnect = True
-
-    def get_tx(self):
-        tx = create_tx_with_script(self.spend_tx, 0, amount=MAX_MONEY)
-        tx.vout = [tx.vout[0]] * 2
-        tx.calc_sha256()
-        return tx
 
 
 class InvalidOPIFConstruction(BadTxTemplate):

@@ -1,13 +1,12 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <protocol.h>
 
+#include <util/strencodings.h>
 #include <util/system.h>
-
-#include <atomic>
 
 static std::atomic<bool> g_initial_block_download_completed(false);
 
@@ -37,6 +36,7 @@ MAKE_MSG(NOTFOUND, "notfound");
 MAKE_MSG(FILTERLOAD, "filterload");
 MAKE_MSG(FILTERADD, "filteradd");
 MAKE_MSG(FILTERCLEAR, "filterclear");
+MAKE_MSG(REJECT, "reject");
 MAKE_MSG(SENDHEADERS, "sendheaders");
 MAKE_MSG(SENDCMPCT, "sendcmpct");
 MAKE_MSG(CMPCTBLOCK, "cmpctblock");
@@ -48,8 +48,8 @@ MAKE_MSG(GETCFHEADERS, "getcfheaders");
 MAKE_MSG(CFHEADERS, "cfheaders");
 MAKE_MSG(GETCFCHECKPT, "getcfcheckpt");
 MAKE_MSG(CFCHECKPT, "cfcheckpt");
-MAKE_MSG(SENDTXRCNCL, "sendtxrcncl");
-// Dash message types
+// ETXO message types
+MAKE_MSG(LEGACYTXLOCKREQUEST, "ix");
 MAKE_MSG(SPORK, "spork");
 MAKE_MSG(GETSPORKS, "getsporks");
 MAKE_MSG(DSACCEPT, "dsa");
@@ -83,13 +83,9 @@ MAKE_MSG(QSIGSHARE, "qsigshare");
 MAKE_MSG(QGETDATA, "qgetdata");
 MAKE_MSG(QDATA, "qdata");
 MAKE_MSG(CLSIG, "clsig");
+MAKE_MSG(ISLOCK, "islock");
 MAKE_MSG(ISDLOCK, "isdlock");
 MAKE_MSG(MNAUTH, "mnauth");
-MAKE_MSG(GETHEADERS2, "getheaders2");
-MAKE_MSG(SENDHEADERS2, "sendheaders2");
-MAKE_MSG(HEADERS2, "headers2");
-MAKE_MSG(GETQUORUMROTATIONINFO, "getqrinfo");
-MAKE_MSG(QUORUMROTATIONINFO, "qrinfo");
 }; // namespace NetMsgType
 
 /** All known message types. Keep this in the same order as the list of
@@ -117,6 +113,7 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::FILTERLOAD,
     NetMsgType::FILTERADD,
     NetMsgType::FILTERCLEAR,
+    NetMsgType::REJECT,
     NetMsgType::SENDHEADERS,
     NetMsgType::SENDCMPCT,
     NetMsgType::CMPCTBLOCK,
@@ -128,9 +125,9 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::CFHEADERS,
     NetMsgType::GETCFCHECKPT,
     NetMsgType::CFCHECKPT,
-    NetMsgType::SENDTXRCNCL,
-    // Dash message types
+    // ETXO message types
     // NOTE: do NOT include non-implmented here, we want them to be "Unknown command" in ProcessMessage()
+    NetMsgType::LEGACYTXLOCKREQUEST,
     NetMsgType::SPORK,
     NetMsgType::GETSPORKS,
     NetMsgType::SENDDSQUEUE,
@@ -164,61 +161,32 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::QGETDATA,
     NetMsgType::QDATA,
     NetMsgType::CLSIG,
+    NetMsgType::ISLOCK,
     NetMsgType::ISDLOCK,
     NetMsgType::MNAUTH,
-    NetMsgType::GETHEADERS2,
-    NetMsgType::SENDHEADERS2,
-    NetMsgType::HEADERS2,
-    NetMsgType::GETQUORUMROTATIONINFO,
-    NetMsgType::QUORUMROTATIONINFO
 };
-const static std::vector<std::string> allNetMessageTypesVec(std::begin(allNetMessageTypes), std::end(allNetMessageTypes));
+const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes+ARRAYLEN(allNetMessageTypes));
 
-/** Message types that are not allowed by blocks-relay-only policy.
- *  We do not want most of CoinJoin, DKG or LLMQ signing messages to be relayed
- *  to/from nodes via connections that were established in this mode.
- *  Make sure to keep this list up to date whenever a new message type is added.
- *  NOTE: Unlike the list above, this list is sorted alphabetically.
- */
-const static std::string netMessageTypesViolateBlocksOnly[] = {
-    NetMsgType::DSACCEPT,
-    NetMsgType::DSCOMPLETE,
-    NetMsgType::DSFINALTX,
-    NetMsgType::DSQUEUE,
-    NetMsgType::DSSIGNFINALTX,
-    NetMsgType::DSSTATUSUPDATE,
-    NetMsgType::DSTX,
-    NetMsgType::DSVIN,
-    NetMsgType::GETQUORUMROTATIONINFO,
-    NetMsgType::QBSIGSHARES,
-    NetMsgType::QCOMPLAINT,
-    NetMsgType::QCONTRIB,
-    NetMsgType::QDATA,
-    NetMsgType::QGETDATA,
-    NetMsgType::QGETSIGSHARES,
-    NetMsgType::QJUSTIFICATION,
-    NetMsgType::QPCOMMITMENT,
-    NetMsgType::QSENDRECSIGS,
-    NetMsgType::QSIGREC,
-    NetMsgType::QSIGSESANN,
-    NetMsgType::QSIGSHARE,
-    NetMsgType::QSIGSHARESINV,
-    NetMsgType::QUORUMROTATIONINFO,
-    NetMsgType::QWATCH,
-    NetMsgType::TX,
-};
-const static std::set<std::string> netMessageTypesViolateBlocksOnlySet(std::begin(netMessageTypesViolateBlocksOnly), std::end(netMessageTypesViolateBlocksOnly));
+CMessageHeader::CMessageHeader(const MessageStartChars& pchMessageStartIn)
+{
+    memcpy(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE);
+    memset(pchCommand, 0, sizeof(pchCommand));
+    nMessageSize = -1;
+    memset(pchChecksum, 0, CHECKSUM_SIZE);
+}
 
 CMessageHeader::CMessageHeader(const MessageStartChars& pchMessageStartIn, const char* pszCommand, unsigned int nMessageSizeIn)
 {
     memcpy(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE);
 
-    // Copy the command name
+    // Copy the command name, zero-padding to COMMAND_SIZE bytes
     size_t i = 0;
     for (; i < COMMAND_SIZE && pszCommand[i] != 0; ++i) pchCommand[i] = pszCommand[i];
     assert(pszCommand[i] == 0); // Assert that the command name passed in is not longer than COMMAND_SIZE
+    for (; i < COMMAND_SIZE; ++i) pchCommand[i] = 0;
 
     nMessageSize = nMessageSizeIn;
+    memset(pchChecksum, 0, CHECKSUM_SIZE);
 }
 
 std::string CMessageHeader::GetCommand() const
@@ -226,20 +194,31 @@ std::string CMessageHeader::GetCommand() const
     return std::string(pchCommand, pchCommand + strnlen(pchCommand, COMMAND_SIZE));
 }
 
-bool CMessageHeader::IsCommandValid() const
+bool CMessageHeader::IsValid(const MessageStartChars& pchMessageStartIn) const
 {
+    // Check start string
+    if (memcmp(pchMessageStart, pchMessageStartIn, MESSAGE_START_SIZE) != 0)
+        return false;
+
     // Check the command string for errors
-    for (const char* p1 = pchCommand; p1 < pchCommand + COMMAND_SIZE; ++p1) {
-        if (*p1 == 0) {
+    for (const char* p1 = pchCommand; p1 < pchCommand + COMMAND_SIZE; p1++)
+    {
+        if (*p1 == 0)
+        {
             // Must be all zeros after the first zero
-            for (; p1 < pchCommand + COMMAND_SIZE; ++p1) {
-                if (*p1 != 0) {
+            for (; p1 < pchCommand + COMMAND_SIZE; p1++)
+                if (*p1 != 0)
                     return false;
-                }
-            }
-        } else if (*p1 < ' ' || *p1 > 0x7E) {
-            return false;
         }
+        else if (*p1 < ' ' || *p1 > 0x7E)
+            return false;
+    }
+
+    // Message size
+    if (nMessageSize > MAX_SIZE)
+    {
+        LogPrintf("CMessageHeader::IsValid(): (%s, %u bytes) nMessageSize > MAX_SIZE\n", GetCommand(), nMessageSize);
+        return false;
     }
 
     return true;
@@ -257,13 +236,38 @@ void SetServiceFlagsIBDCache(bool state) {
     g_initial_block_download_completed = state;
 }
 
+
+CAddress::CAddress() : CService()
+{
+    Init();
+}
+
+CAddress::CAddress(CService ipIn, ServiceFlags nServicesIn) : CService(ipIn)
+{
+    Init();
+    nServices = nServicesIn;
+}
+
+CAddress::CAddress(CService ipIn, ServiceFlags nServicesIn, uint32_t nTimeIn) : CService(ipIn)
+{
+    Init();
+    nServices = nServicesIn;
+    nTime = nTimeIn;
+}
+
+void CAddress::Init()
+{
+    nServices = NODE_NONE;
+    nTime = 100000000;
+}
+
 CInv::CInv()
 {
     type = 0;
     hash.SetNull();
 }
 
-CInv::CInv(uint32_t typeIn, const uint256& hashIn) : type(typeIn), hash(hashIn) {}
+CInv::CInv(int typeIn, const uint256& hashIn) : type(typeIn), hash(hashIn) {}
 
 bool operator<(const CInv& a, const CInv& b)
 {
@@ -282,6 +286,7 @@ const char* CInv::GetCommandInternal() const
         case MSG_TX:                            return NetMsgType::TX;
         case MSG_BLOCK:                         return NetMsgType::BLOCK;
         case MSG_FILTERED_BLOCK:                return NetMsgType::MERKLEBLOCK;
+        case MSG_LEGACY_TXLOCK_REQUEST:         return NetMsgType::LEGACYTXLOCKREQUEST;
         case MSG_CMPCT_BLOCK:                   return NetMsgType::CMPCTBLOCK;
         case MSG_SPORK:                         return NetMsgType::SPORK;
         case MSG_DSTX:                          return NetMsgType::DSTX;
@@ -294,8 +299,8 @@ const char* CInv::GetCommandInternal() const
         case MSG_QUORUM_PREMATURE_COMMITMENT:   return NetMsgType::QPCOMMITMENT;
         case MSG_QUORUM_RECOVERED_SIG:          return NetMsgType::QSIGREC;
         case MSG_CLSIG:                         return NetMsgType::CLSIG;
+        case MSG_ISLOCK:                        return NetMsgType::ISLOCK;
         case MSG_ISDLOCK:                       return NetMsgType::ISDLOCK;
-        case MSG_DSQ:                           return NetMsgType::DSQUEUE;
         default:
             return nullptr;
     }
@@ -325,11 +330,6 @@ const std::vector<std::string> &getAllNetMessageTypes()
     return allNetMessageTypesVec;
 }
 
-bool NetMessageViolatesBlocksOnly(const std::string& msg_type)
-{
-    return netMessageTypesViolateBlocksOnlySet.find(msg_type) != netMessageTypesViolateBlocksOnlySet.end();
-}
-
 /**
  * Convert a service flag (NODE_*) to a human readable string.
  * It supports unknown service flags which will be returned as "UNKNOWN[...]".
@@ -341,15 +341,19 @@ static std::string serviceFlagToStr(size_t bit)
     switch ((ServiceFlags)service_flag) {
     case NODE_NONE: abort();  // impossible
     case NODE_NETWORK:         return "NETWORK";
+    case NODE_GETUTXO:         return "GETUTXO";
     case NODE_BLOOM:           return "BLOOM";
     case NODE_COMPACT_FILTERS: return "COMPACT_FILTERS";
     case NODE_NETWORK_LIMITED: return "NETWORK_LIMITED";
-    case NODE_HEADERS_COMPRESSED: return "HEADERS_COMPRESSED";
-    case NODE_P2P_V2:          return "P2P_V2";
     // Not using default, so we get warned when a case is missing
     }
 
-    return strprintf("UNKNOWN[2^%u]", bit);
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << "UNKNOWN[";
+    stream << "2^" << bit;
+    stream << "]";
+    return stream.str();
 }
 
 std::vector<std::string> serviceFlagsToStr(uint64_t flags)

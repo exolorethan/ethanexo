@@ -1,33 +1,13 @@
-// Copyright (c) 2014-2024 The Dash Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
-#include <flat-database.h>
 #include <netfulfilledman.h>
 #include <shutdown.h>
 #include <util/system.h>
 
-CNetFulfilledRequestManager::CNetFulfilledRequestManager() :
-    m_db{std::make_unique<db_type>("netfulfilled.dat", "magicFulfilledCache")}
-{
-}
-
-bool CNetFulfilledRequestManager::LoadCache(bool load_cache)
-{
-    assert(m_db != nullptr);
-    is_valid = load_cache ? m_db->Load(*this) : m_db->Store(*this);
-    if (is_valid && load_cache) {
-        CheckAndRemove();
-    }
-    return is_valid;
-}
-
-CNetFulfilledRequestManager::~CNetFulfilledRequestManager()
-{
-    if (!is_valid) return;
-    m_db->Store(*this);
-}
+CNetFulfilledRequestManager netfulfilledman;
 
 void CNetFulfilledRequestManager::AddFulfilledRequest(const CService& addr, const std::string& strRequest)
 {
@@ -82,13 +62,13 @@ void CNetFulfilledRequestManager::CheckAndRemove()
     }
 }
 
-void NetFulfilledRequestStore::Clear()
+void CNetFulfilledRequestManager::Clear()
 {
     LOCK(cs_mapFulfilledRequests);
     mapFulfilledRequests.clear();
 }
 
-std::string NetFulfilledRequestStore::ToString() const
+std::string CNetFulfilledRequestManager::ToString() const
 {
     std::ostringstream info;
     info << "Nodes with fulfilled requests: " << (int)mapFulfilledRequests.size();

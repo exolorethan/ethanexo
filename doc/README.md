@@ -1,87 +1,65 @@
-Dash Core
-==========
+Ethanexo Core Latest v1.3.17.05
+===========================
 
-This is the official reference wallet for Dash digital currency and comprises the backbone of the Dash peer-to-peer network. You can [download Dash Core](https://www.dash.org/downloads/) or [build it yourself](#building) using the guides below.
+|CI|master|develop|
+|-|-|-|
 
-Running
----------------------
-The following are some helpful notes on how to run Dash Core on your native platform.
+The name Ethanexo is derived from the Victorian term for a bird of prey and ium/eum place for a pertaining to in this case birds of prey. The name comes from the team’s extensive experience in the security field with top level skills covering all aspects of it. This is a unique strength in the crypto community and will leverage well into a successful project.
 
-### Unix
+Introduction
+Ethanexo began as the fairly simple idea, introducing smart contracts which would allow on chain, trustless transfers (goodbye centralized marketplaces) on the Ravencoin codebase, however with the automation of assets and ETXO (Ethanexo).
+The project has quickly evolved, adding innovative features that not only further expand the asset layer, but also introduce features that could help other Blockchain projects. Ravencoin unfortunately suffered several serious breaches of its asset layer so that code base has been abandoned by us. We are currently working with and building on Ethanexo code expending its capabilities significantly.
 
-Unpack the files into a directory and run:
+Ethanexo is now a code fork of Dash and inherits current and optionally future features such as chain locks, oracles etc. We are further expanding capabilities by adding the following features:
+A)	The deployment of a unique asset layer.
+B)	The option to lock X amount of coins or assets into a special transaction. Coins are unlocked at a block number of choice or timestamp.
+C)	Trustless on chain transfers of assets and native coins VIA Smart Contracts.
+D)	Integrating, developing and deploying a VM protocol that would allow for smart contracts in 4 major programming languages as opposed to the situation with Ethereum being limited to solidity.
 
-- `bin/dash-qt` (GUI) or
-- `bin/dashd` (headless)
+These additional features open up the power and ease of use of Ethanexo’s features to a greater variety of industries under the Distributed Application umbrella. DAPP's are a critical part of driving widespread adoption as recently seen with DEFI and Ethanexo hopes to help provide further alternatives and possibilities for DAPP developers particularly in the field of opening up new programming languages for DAPP and contract development.
 
-### Windows
+It is one of our goals to not only innovate ideas for Ethanexo but to contribute back to the general crypto community with open-source features that anybody can use to help their Blockchain projects succeed.
 
-Unpack the files into a directory, and then run dash-qt.exe.
-
-### macOS
-
-Drag Dash Core to your applications folder, and then run Dash Core.
-
-### Need Help?
-
-* See the [Dash documentation](https://docs.dash.org)
-for help and more information.
-* Ask for help on [Dash Discord](http://staydashy.com)
-* Ask for help on the [Dash Forum](https://dash.org/forum)
-
-Building
----------------------
-The following are developer notes on how to build Dash Core on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
-
-- [Dependencies](dependencies.md)
-- [macOS Build Notes](build-osx.md)
-- [Unix Build Notes](build-unix.md)
-- [Windows Build Notes](build-windows.md)
-- [OpenBSD Build Notes](build-openbsd.md)
-- [NetBSD Build Notes](build-netbsd.md)
-- [Android Build Notes](build-android.md)
-
-Development
----------------------
-The Dash Core repo's [root README](/README.md) contains relevant information on the development process and automated testing.
-
-- [Developer Notes](developer-notes.md)
-- [Productivity Notes](productivity.md)
-- [Release Notes](release-notes.md)
-- [Release Process](release-process.md)
-- Source Code Documentation ***TODO***
-- [Translation Process](translation_process.md)
-- [Translation Strings Policy](translation_strings_policy.md)
-- [JSON-RPC Interface](JSON-RPC-interface.md)
-- [Unauthenticated REST Interface](REST-interface.md)
-- [Shared Libraries](shared-libraries.md)
-- [BIPS](bips.md)
-- [Dnsseed Policy](dnsseed-policy.md)
-- [Benchmarking](benchmarking.md)
-
-### Resources
-* See the [Dash Developer Documentation](https://dashcore.readme.io/)
-  for technical specifications and implementation details.
-* Discuss on the [Dash Forum](https://dash.org/forum), in the Development & Technical Discussion board.
-* Discuss on [Dash Discord](http://staydashy.com)
-* Discuss on [Dash Developers Discord](http://chat.dashdevs.org/)
-
-### Miscellaneous
-- [Assets Attribution](assets-attribution.md)
-- [Assumeutxo design](assumeutxo.md)
-- [dash.conf Configuration File](dash-conf.md)
-- [CJDNS Support](cjdns.md)
-- [Files](files.md)
-- [Fuzz-testing](fuzzing.md)
-- [I2P Support](i2p.md)
-- [Init Scripts (systemd/upstart/openrc)](init.md)
-- [Managing Wallets](managing-wallets.md)
-- [PSBT support](psbt.md)
-- [Reduce Memory](reduce-memory.md)
-- [Reduce Traffic](reduce-traffic.md)
-- [Tor Support](tor.md)
-- [ZMQ](zmq.md)
 
 License
----------------------
-Distributed under the [MIT software license](/COPYING).
+-------
+
+Ethanexo Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
+information or see https://opensource.org/licenses/MIT.
+
+Development Process
+-------------------
+
+The `master` branch is meant to be stable. Development is done in separate branches.
+[Tags](https://github.com/raptor3um/ethanexo/tags) are created to indicate new official,
+stable release versions of Ethanexo Core.
+
+The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Testing
+-------
+
+Testing and code review is the bottleneck for development; we get more pull
+requests than we can review and test on short notice. Please be patient and help out by testing
+other people's pull requests, and remember this is a security-critical project where any mistake might cost people
+lots of money.
+
+### Automated Testing
+
+Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
+submit new unit tests for old code. Unit tests can be compiled and run
+(assuming they weren't disabled in configure) with: `make check`. Further details on running
+and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+
+There are also [regression and integration tests](/test), written
+in Python, that are run automatically on the build server.
+These tests can be run (if the [test dependencies](/test) are installed) with: `test/functional/test_runner.py`
+
+The Travis CI system makes sure that every pull request is built for Windows, Linux, and OS X, and that unit/sanity tests are run automatically.
+
+### Manual Quality Assurance (QA) Testing
+
+Changes should be tested by somebody other than the developer who wrote the
+code. This is especially important for large or high-risk changes. It is useful
+to add a test plan to the pull request description if testing the changes is
+not straightforward.

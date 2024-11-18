@@ -1,11 +1,10 @@
 // Copyright (c) 2016-2020 The Bitcoin Core developers
-// Copyright (c) 2018-2022 The Dash Core developers
+// Copyright (c) 2018-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 
 #include <bench/bench.h>
-#include <crypto/muhash.h>
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
 #include <crypto/sha256.h>
@@ -13,7 +12,6 @@
 #include <crypto/sha512.h>
 #include <crypto/siphash.h>
 #include <hash.h>
-#include <hash_x11.h>
 #include <random.h>
 #include <uint256.h>
 
@@ -246,50 +244,6 @@ static void FastRandom_1bit(benchmark::Bench& bench)
     });
 }
 
-static void MuHash(benchmark::Bench& bench)
-{
-    MuHash3072 acc;
-    unsigned char key[32] = {0};
-    uint32_t i = 0;
-    bench.run([&] {
-        key[0] = ++i & 0xFF;
-        acc *= MuHash3072(key);
-    });
-}
-
-static void MuHashMul(benchmark::Bench& bench)
-{
-    MuHash3072 acc;
-    FastRandomContext rng(true);
-    MuHash3072 muhash{rng.randbytes(32)};
-
-    bench.run([&] {
-        acc *= muhash;
-    });
-}
-
-static void MuHashDiv(benchmark::Bench& bench)
-{
-    MuHash3072 acc;
-    FastRandomContext rng(true);
-    MuHash3072 muhash{rng.randbytes(32)};
-
-    bench.run([&] {
-        acc /= muhash;
-    });
-}
-
-static void MuHashPrecompute(benchmark::Bench& bench)
-{
-    MuHash3072 acc;
-    FastRandomContext rng(true);
-    std::vector<unsigned char> key{rng.randbytes(32)};
-
-    bench.run([&] {
-        MuHash3072{key};
-    });
-}
-
 BENCHMARK(HASH_1MB_DSHA256);
 BENCHMARK(HASH_1MB_RIPEMD160);
 BENCHMARK(HASH_1MB_SHA1);
@@ -318,8 +272,3 @@ BENCHMARK(HASH_SHA256D64_1024);
 
 BENCHMARK(FastRandom_32bit);
 BENCHMARK(FastRandom_1bit);
-
-BENCHMARK(MuHash);
-BENCHMARK(MuHashMul);
-BENCHMARK(MuHashDiv);
-BENCHMARK(MuHashPrecompute);

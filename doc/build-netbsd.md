@@ -1,12 +1,12 @@
-NetBSD Build Guide
+NetBSD build guide
 ======================
-**Updated for NetBSD [8.0](https://www.netbsd.org/releases/formal-8/NetBSD-8.0.html)**
+(updated for NetBSD 8.0)
 
-This guide describes how to build dashd and command-line utilities on NetBSD.
+This guide describes how to build ethanexod and command-line utilities on NetBSD.
 
 This guide does not contain instructions for building the GUI.
 
-**This guide has not been tested for building Dash Core and is expected to fail due to missing `bls_dash` and `backtrace`. Please report your results; contributions welcome.**
+**This guide has not been tested for building Ethanexo Core and is expected to fail due to missing `bls_dash` and `backtrace`. Please report your results; contributions welcome.**
 
 Preparation
 -------------
@@ -19,13 +19,12 @@ automake
 boost
 git
 gmake
-gmp
 libevent
 libtool
 pkg-config
 python37
 
-git clone https://github.com/dashpay/dash.git
+git clone https://github.com/exolorethan/ethanexo.git
 ```
 
 See [dependencies.md](dependencies.md) for a complete overview.
@@ -40,45 +39,43 @@ from ports, for the same reason as boost above (g++/libstd++ incompatibility).
 If you have to build it yourself, you can use [the installation script included
 in contrib/](/contrib/install_db4.sh) like so:
 
-```bash
+```shell
 ./contrib/install_db4.sh `pwd`
 ```
 
 from the root of the repository. Then set `BDB_PREFIX` for the next section:
 
-```bash
+```shell
 export BDB_PREFIX="$PWD/db4"
 ```
 
-### Building Dash Core
+### Building Ethanexo Core
 
 **Important**: Use `gmake` (the non-GNU `make` will exit with an error).
 
 With wallet:
-```bash
+```
 ./autogen.sh
 ./configure --with-gui=no CPPFLAGS="-I/usr/pkg/include" \
     LDFLAGS="-L/usr/pkg/lib" \
     BOOST_CPPFLAGS="-I/usr/pkg/include" \
     BOOST_LDFLAGS="-L/usr/pkg/lib" \
     BDB_LIBS="-L${BDB_PREFIX}/lib -ldb_cxx-4.8" \
-    BDB_CFLAGS="-I${BDB_PREFIX}/include" \
-    MAKE=gmake
+    BDB_CFLAGS="-I${BDB_PREFIX}/include"
 ```
 
 Without wallet:
-```bash
+```
 ./autogen.sh
 ./configure --with-gui=no --disable-wallet \
     CPPFLAGS="-I/usr/pkg/include" \
     LDFLAGS="-L/usr/pkg/lib" \
     BOOST_CPPFLAGS="-I/usr/pkg/include" \
-    BOOST_LDFLAGS="-L/usr/pkg/lib" \
-    MAKE=gmake
+    BOOST_LDFLAGS="-L/usr/pkg/lib"
 ```
 
 Build and run the tests:
 ```bash
-gmake # use "-j N" here for N parallel jobs
+gmake # use -jX here for parallelism
 gmake check
 ```

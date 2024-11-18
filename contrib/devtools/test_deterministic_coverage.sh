@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (c) 2019-2020 The Bitcoin Core developers
+# Copyright (c) 2019 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #
@@ -12,11 +12,12 @@ export LC_ALL=C
 # Use GCOV_EXECUTABLE="llvm-cov gcov" if compiling with clang.
 GCOV_EXECUTABLE="gcov"
 
-# TODO this list is likely incomplete / incorrect for Dash
+# TODO this list is likely incomplete / incorrect for Ethanexo
 # Disable tests known to cause non-deterministic behaviour and document the source or point of non-determinism.
 NON_DETERMINISTIC_TESTS=(
     "blockfilter_index_tests/blockfilter_index_initial_sync"  # src/checkqueue.h: In CCheckQueue::Loop(): while (queue.empty()) { ... }
     "coinselector_tests/knapsack_solver_test"                 # coinselector_tests.cpp: if (equal_sets(setCoinsRet, setCoinsRet2))
+    "denialofservice_tests/DoS_mapOrphans"                    # denialofservice_tests.cpp: it = mapOrphanTransactions.lower_bound(InsecureRand256());
     "fs_tests/fsbridge_fstream"                               # deterministic test failure?
     "miner_tests/CreateNewBlock_validity"                     # validation.cpp: if (GetMainSignals().CallbacksPending() > 10)
     "scheduler_tests/manythreads"                             # scheduler.cpp: CScheduler::serviceQueue()
@@ -35,7 +36,7 @@ NON_DETERMINISTIC_TESTS=(
     "wallet_tests/wallet_disableprivkeys"                     # validation.cpp: if (GetMainSignals().CallbacksPending() > 10)
 )
 
-TEST_BITCOIN_BINARY="src/test/test_dash"
+TEST_BITCOIN_BINARY="src/test/test_ethanexo"
 
 print_usage() {
     echo "Usage: $0 [custom test filter (default: all but known non-deterministic tests)] [number of test runs (default: 2)]"

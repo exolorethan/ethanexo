@@ -1,10 +1,10 @@
-// Copyright (c) 2011-2019 The Bitcoin Core developers
-// Copyright (c) 2014-2022 The Dash Core developers
+// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2014-2020 The Dash Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
+#include <config/ethanexo-config.h>
 #endif
 
 #include <qt/sendcoinsentry.h>
@@ -14,7 +14,6 @@
 #include <qt/addresstablemodel.h>
 #include <qt/guiutil.h>
 #include <qt/optionsmodel.h>
-#include <qt/walletmodel.h>
 
 #include <QApplication>
 #include <QClipboard>
@@ -30,9 +29,11 @@ SendCoinsEntry::SendCoinsEntry(QWidget* parent) :
 
     setCurrentWidget(ui->SendCoins);
 
+    ui->addAsLabel->setPlaceholderText(tr("Enter a label for this address to add it to your address book"));
+
     setButtonIcons();
 
-    // normal dash address field
+    // normal ethanexo address field
     GUIUtil::setupAddressWidget(ui->payTo, this, true);
 
     GUIUtil::setFont({ui->payToLabel,
@@ -103,9 +104,7 @@ void SendCoinsEntry::clear()
     ui->payTo->clear();
     ui->addAsLabel->clear();
     ui->payAmount->clear();
-    if (model && model->getOptionsModel()) {
-        ui->checkboxSubtractFeeFromAmount->setChecked(model->getOptionsModel()->getSubFeeFromAmount());
-    }
+    ui->checkboxSubtractFeeFromAmount->setCheckState(Qt::Unchecked);
     ui->messageTextLabel->clear();
     ui->messageTextLabel->hide();
     ui->messageLabel->hide();
@@ -145,6 +144,12 @@ bool SendCoinsEntry::validate(interfaces::Node& node)
     // Check input validity
     bool retval = true;
 
+#ifdef ENABLE_BIP70
+    // Skip checks for payment request
+    if (recipient.paymentRequest.IsInitialized())
+        return retval;
+#endif
+
     if (!model->validateAddress(ui->payTo->text()))
     {
         ui->payTo->setValid(false);
@@ -174,6 +179,12 @@ bool SendCoinsEntry::validate(interfaces::Node& node)
 
 SendCoinsRecipient SendCoinsEntry::getValue()
 {
+#ifdef ENABLE_BIP70
+    // Payment request
+    if (recipient.paymentRequest.IsInitialized())
+        return recipient;
+#endif
+
     // Normal payment
     recipient.address = ui->payTo->text();
     recipient.label = ui->addAsLabel->text();
@@ -199,6 +210,29 @@ QWidget *SendCoinsEntry::setupTabChain(QWidget *prev)
 void SendCoinsEntry::setValue(const SendCoinsRecipient &value)
 {
     recipient = value;
+
+#ifdef ENABLE_BIP70
+    if (recipient.paymentRequest.IsInitialized()) // payment request
+    {
+        if (recipient.authenticatedMerchant.isEmpty()) // unauthenticated
+        {
+            ui->payTo_is->setText(recipient.address);
+            ui->memoTextLabel_is->setText(recipient.message);
+            ui->payAmount_is->setValue(recipient.amount);
+            ui->payAmount_is->setReadOnly(true);
+            setCurrentWidget(ui->SendCoins_UnauthenticatedPaymentRequest);
+        }
+        else // authenticated
+        {
+            ui->payTo_s->setText(recipient.authenticatedMerchant);
+            ui->memoTextLabel_s->setText(recipient.message);
+            ui->payAmount_s->setValue(recipient.amount);
+            ui->payAmount_s->setReadOnly(true);
+            setCurrentWidget(ui->SendCoins_AuthenticatedPaymentRequest);
+        }
+    }
+    else // normal payment
+#endif
     {
         // message
         ui->messageTextLabel->setText(recipient.message);

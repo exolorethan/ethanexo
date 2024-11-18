@@ -1,17 +1,18 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2009-2015 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_PRIMITIVES_BLOCK_H
 #define BITCOIN_PRIMITIVES_BLOCK_H
 
-#include <list>
 #include <primitives/transaction.h>
+#include <consensus/params.h>
+#include "crypto/progpow.h"
 #include <serialize.h>
 #include <uint256.h>
-#include <cstddef>
-#include <type_traits>
+
+extern uint32_t nPPSwitchTime;
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -31,12 +32,37 @@ public:
     uint32_t nBits;
     uint32_t nNonce;
 
+    // ETXO - ProgPow 
+    uint32_t nHeight;
+    uint64_t nNonce64;
+    uint256 mix_hash;
+
     CBlockHeader()
     {
         SetNull();
     }
 
-    SERIALIZE_METHODS(CBlockHeader, obj) { READWRITE(obj.nVersion, obj.hashPrevBlock, obj.hashMerkleRoot, obj.nTime, obj.nBits, obj.nNonce); }
+    bool IsProgPow() const;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(nVersion);
+        READWRITE(hashPrevBlock);
+        READWRITE(hashMerkleRoot);
+        READWRITE(nTime);
+        READWRITE(nBits);
+        // ETXO - ProgPoW
+        // Return std 4byte, if ProgPoW return 8byte
+        if (IsProgPow()) {
+            READWRITE(nHeight);
+            READWRITE(nNonce64);
+            READWRITE(mix_hash);
+        } else {
+            READWRITE(nNonce);
+        }
+    }
 
     void SetNull()
     {
@@ -46,6 +72,10 @@ public:
         nTime = 0;
         nBits = 0;
         nNonce = 0;
+        // ETXO - ProgPow
+        nNonce64 = 0;
+        nHeight  = 0;
+        mix_hash.SetNull();
     }
 
     bool IsNull() const
@@ -55,140 +85,33 @@ public:
 
     uint256 GetHash() const;
 
+    uint256 GetHashFull(uint256& mix_hash) const;
+    uint256 GetPoWHash(int nHeight) const;
+
+    bool IsFirstProgPow() const;
+
+    CProgPowHeader GetProgPowHeader() const;
+    uint256 GetProgPowHeaderHash() const;
+    uint256 GetProgPowHashFull(uint256& mix_hash) const;
+    uint256 GetProgPowHashLight() const;
+
     int64_t GetBlockTime() const
     {
         return (int64_t)nTime;
     }
+
 };
 
-class CompressedHeaderBitField
-{
-    std::byte bit_field{0};
-
-public:
-    enum class Flag : std::underlying_type_t<std::byte> {
-        VERSION_BIT_0 = (1 << 0),
-        VERSION_BIT_1 = (1 << 1),
-        VERSION_BIT_2 = (1 << 2),
-        PREV_BLOCK_HASH = (1 << 3),
-        TIMESTAMP = (1 << 4),
-        NBITS = (1 << 5),
-    };
-
-    inline bool IsCompressed(Flag flag) const
-    {
-        return (bit_field & to_byte(flag)) == to_byte(0);
-    }
-
-    inline void MarkAsUncompressed(Flag flag)
-    {
-        bit_field |= to_byte(flag);
-    }
-
-    inline void MarkAsCompressed(Flag flag)
-    {
-        bit_field &= ~to_byte(flag);
-    }
-
-    inline bool IsVersionCompressed() const
-    {
-        return GetVersionOffset() != 0;
-    }
-
-    inline void SetVersionOffset(uint8_t version)
-    {
-        bit_field &= ~VERSION_BIT_MASK;
-        bit_field |= to_byte(version) & VERSION_BIT_MASK;
-    }
-
-    inline uint8_t GetVersionOffset() const
-    {
-        return to_uint8(bit_field & VERSION_BIT_MASK);
-    }
-
-    template <typename Stream>
-    void Serialize(Stream& s) const
-    {
-        ::Serialize(s, to_uint8(bit_field));
-    }
-
-    template <typename Stream>
-    void Unserialize(Stream& s)
-    {
-        uint8_t new_bit_field_value;
-        ::Unserialize(s, new_bit_field_value);
-        bit_field = to_byte(new_bit_field_value);
-    }
-
-private:
-    static constexpr uint8_t to_uint8(const std::byte value)
-    {
-        return std::to_integer<uint8_t>(value);
-    }
-
-    static constexpr std::byte to_byte(const uint8_t value)
-    {
-        return std::byte{value};
-    }
-
-    static constexpr std::byte to_byte(const Flag flag)
-    {
-        return static_cast<std::byte>(flag);
-    }
-
-    static constexpr std::byte VERSION_BIT_MASK = static_cast<std::byte>(Flag::VERSION_BIT_0) | static_cast<std::byte>(Flag::VERSION_BIT_1) | static_cast<std::byte>(Flag::VERSION_BIT_2);
-};
-
-struct CompressibleBlockHeader : CBlockHeader {
-    CompressedHeaderBitField bit_field;
-    int16_t time_offset{0};
-
-    CompressibleBlockHeader() = default;
-
-    explicit CompressibleBlockHeader(CBlockHeader&& block_header)
-    {
-        static_assert(std::is_trivially_copyable_v<CBlockHeader>, "If CBlockHeader is not trivially copyable, please consider using std::move on the next line");
-        *static_cast<CBlockHeader*>(this) = block_header;
-
-        // When we create this from a block header, mark everything as uncompressed
-        bit_field.SetVersionOffset(0);
-        bit_field.MarkAsUncompressed(CompressedHeaderBitField::Flag::PREV_BLOCK_HASH);
-        bit_field.MarkAsUncompressed(CompressedHeaderBitField::Flag::TIMESTAMP);
-        bit_field.MarkAsUncompressed(CompressedHeaderBitField::Flag::NBITS);
-    }
-
-    SERIALIZE_METHODS(CompressibleBlockHeader, obj)
-    {
-        READWRITE(obj.bit_field);
-        if (!obj.bit_field.IsVersionCompressed()) {
-            READWRITE(obj.nVersion);
-        }
-        if (!obj.bit_field.IsCompressed(CompressedHeaderBitField::Flag::PREV_BLOCK_HASH)) {
-            READWRITE(obj.hashPrevBlock);
-        }
-        READWRITE(obj.hashMerkleRoot);
-        if (!obj.bit_field.IsCompressed(CompressedHeaderBitField::Flag::TIMESTAMP)) {
-            READWRITE(obj.nTime);
-        } else {
-            READWRITE(obj.time_offset);
-        }
-        if (!obj.bit_field.IsCompressed(CompressedHeaderBitField::Flag::NBITS)) {
-            READWRITE(obj.nBits);
-        }
-        READWRITE(obj.nNonce);
-    }
-
-    void Compress(const std::vector<CompressibleBlockHeader>& previous_blocks, std::list<int32_t>& last_unique_versions);
-
-    void Uncompress(const std::vector<CBlockHeader>& previous_blocks, std::list<int32_t>& last_unique_versions);
-};
 
 class CBlock : public CBlockHeader
 {
 public:
     // network and disk
     std::vector<CTransactionRef> vtx;
-
+    mutable CTxOut txoutFounder; // founder payment
+    mutable CTxOut txoutCommunity; // community payment
+    mutable CTxOut txoutDevelopment; // development payment
+    mutable CTxOut txoutProjectExpenses; // data mining payment    
     // memory only
     mutable bool fChecked;
 
@@ -213,6 +136,10 @@ public:
     {
         CBlockHeader::SetNull();
         vtx.clear();
+        txoutFounder = CTxOut();
+        txoutCommunity = CTxOut();
+        txoutDevelopment = CTxOut();
+        txoutProjectExpenses = CTxOut();
         fChecked = false;
     }
 
@@ -225,6 +152,13 @@ public:
         block.nTime          = nTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
+        if (IsProgPow()) {
+            block.nHeight    = nHeight;
+            block.nNonce64   = nNonce64;
+            block.mix_hash   = mix_hash;
+        } else {
+            block.nNonce     = nNonce;
+        }
         return block;
     }
 
