@@ -147,5 +147,5 @@ struct Params {
 };
 } // namespace Consensus
  
-#define ETHANEXO_GEN_TIME 1731083108
+#define ETHANEXO_GEN_TIME 1731920000
 #endif // BITCOIN_CONSENSUS_PARAMS_H
