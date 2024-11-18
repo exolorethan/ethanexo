@@ -205,7 +205,7 @@ public:
 
         /** Prog PoW **/
         consensus.nPPSwitchHeight = 100; //placeholder set to disconnect peers.
-        consensus.nPPSwitchTime = 1731140000; // Friday, October 21, 2022 11:00:00 AM GMT
+        consensus.nPPSwitchTime = 1731921000; // Friday, October 21, 2022 11:00:00 AM GMT
         consensus.nInitialPPDifficulty = 0x1b1774cd;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit        = 28;
@@ -255,7 +255,7 @@ public:
         std::vector<FounderRewardStrcuture> rewardStructuresDev = {  {INT_MAX,5} }; // 5% dev fee forever    
 	    consensus.nDevelopmentPayment = FounderPayment(rewardStructuresDev, 10, "EWWCNSDao71YeTg1nLYCGQ4ymXfs7nYyYW"); 
 
-        consensus.masternodeCollateral = 10000;
+        consensus.masternodeCollateral = 360000;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0000000000000000000000000000000000000000000000000000000000000000");  
