@@ -212,9 +212,13 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // get some info back to pass to getblocktemplate
     FillBlockPayments(coinbaseTx, nHeight, blockReward, pblocktemplate->voutMasternodePayments, pblocktemplate->voutSuperblockPayments);
     
+	
+	LogPrintf("CreateNewBlock -- Before FounderPayment: %s\n", coinbaseTx.ToString());
     FounderPayment founderPayment = chainparams.GetConsensus().nFounderPayment;
     founderPayment.FillFounderPayment(coinbaseTx, nHeight, blockReward, pblock->txoutFounder);
-
+	LogPrintf("CreateNewBlock -- After FounderPayment: %s\n", coinbaseTx.ToString());
+	
+	
     FounderPayment developmentPayment = chainparams.GetConsensus().nDevelopmentPayment;
     developmentPayment.FillFounderPayment(coinbaseTx, nHeight, blockReward, pblock->txoutDevelopment);
 
