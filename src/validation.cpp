@@ -1041,92 +1041,93 @@ NOTE:   unlike bitcoin we are using PREVIOUS block height here,
 CAmount GetBlockSubsidy(int nPrevHeight)
 {
     CAmount nSubsidyBase;
+	int nHeight = nPrevHeight + 1;
 
     if (nPrevHeight == 0) {
         nSubsidyBase = 3000000 * COIN;
     } else if (nPrevHeight <= 1440 ) {
         nSubsidyBase = 20 * COIN;
-    } else if (nPrevHeight <= 6000 ) {
+    } else if (nPrevHeight <= 6001 ) {
         nSubsidyBase = 2000 * COIN;
-    } else if (nPrevHeight <= 14000) {
+    } else if (nHeight <= 14000) {
         nSubsidyBase = 1000 * COIN;
-    } else if (nPrevHeight <= 24000) {
+    } else if (nHeight <= 24000) {
         nSubsidyBase = 800 * COIN;
-    } else if (nPrevHeight <= 44000) {
+    } else if (nHeight <= 44000) {
         nSubsidyBase = 600 * COIN;
-    } else if (nPrevHeight <= 74000) {
+    } else if (nHeight <= 74000) {
         nSubsidyBase = 400 * COIN;
-    } else if (nPrevHeight <= 87500) {
+    } else if (nHeight <= 87500) {
         nSubsidyBase = 300 * COIN;
-    } else if (nPrevHeight <= 172000) {
+    } else if (nHeight <= 172000) {
         nSubsidyBase = 150 * COIN;
-    } else if (nPrevHeight <= 283000) {
+    } else if (nHeight <= 283000) {
         nSubsidyBase = 120 * COIN;
-    } else if (nPrevHeight <= 330000) {
+    } else if (nHeight <= 330000) {
         nSubsidyBase = 80 * COIN;
-    } else if (nPrevHeight <= 492000) {
+    } else if (nHeight <= 492000) {
         nSubsidyBase = 64 * COIN;
-    } else if (nPrevHeight <= 654000) {
+    } else if (nHeight <= 654000) {
         nSubsidyBase = 52 * COIN;
-    } else if (nPrevHeight <= 816000) {
+    } else if (nHeight <= 816000) {
         nSubsidyBase = 42 * COIN;
-    } else if (nPrevHeight <= 978000) {
+    } else if (nHeight <= 978000) {
         nSubsidyBase = 34 * COIN;
-    } else if (nPrevHeight <= 1140000) {
+    } else if (nHeight <= 1140000) {
         nSubsidyBase = 26 * COIN;
-    } else if (nPrevHeight <= 1302000) {
+    } else if (nHeight <= 1302000) {
         nSubsidyBase = 22 * COIN;
-    } else if (nPrevHeight <= 1464000) {
+    } else if (nHeight <= 1464000) {
         nSubsidyBase = 20 * COIN;
-    } else if (nPrevHeight <= 1626000) {
+    } else if (nHeight <= 1626000) {
         nSubsidyBase = 18 * COIN;
-    } else if (nPrevHeight <= 1788000) {
+    } else if (nHeight <= 1788000) {
         nSubsidyBase = 15 * COIN;
-    } else if (nPrevHeight <= 1950000) {
+    } else if (nHeight <= 1950000) {
         nSubsidyBase = 14 * COIN;
-    } else if (nPrevHeight <= 2112000) {
+    } else if (nHeight <= 2112000) {
         nSubsidyBase = 13 * COIN;
-    } else if (nPrevHeight <= 2274000) {
+    } else if (nHeight <= 2274000) {
         nSubsidyBase = 12 * COIN;
-    } else if (nPrevHeight <= 2436000) {
+    } else if (nHeight <= 2436000) {
         nSubsidyBase = 11 * COIN;
-    } else if (nPrevHeight <= 2598000) {
+    } else if (nHeight <= 2598000) {
         nSubsidyBase = 10 * COIN;
-    } else if (nPrevHeight <= 2760000) {
+    } else if (nHeight <= 2760000) {
         nSubsidyBase = 9 * COIN;
-    } else if (nPrevHeight <= 2922000) {
+    } else if (nHeight <= 2922000) {
         nSubsidyBase = 8 * COIN;
-    } else if (nPrevHeight <= 3084000) {
+    } else if (nHeight <= 3084000) {
         nSubsidyBase = 7 * COIN;
-    } else if (nPrevHeight <= 3246000) {
+    } else if (nHeight <= 3246000) {
         nSubsidyBase = 6 * COIN;
-    } else if (nPrevHeight <= 3408000) {
+    } else if (nHeight <= 3408000) {
         nSubsidyBase = 5 * COIN;
-    } else if (nPrevHeight <= 3570000) {
+    } else if (nHeight <= 3570000) {
         nSubsidyBase = 4 * COIN;
-    } else if (nPrevHeight <= 3732000) {
+    } else if (nHeight <= 3732000) {
         nSubsidyBase = 3 * COIN;
-    } else if (nPrevHeight <= 3894000) {
+    } else if (nHeight <= 3894000) {
         nSubsidyBase = 2 * COIN;
-    } else if (nPrevHeight <= 4056000) {
+    } else if (nHeight <= 4056000) {
         nSubsidyBase = 1 * COIN;
-    } else if (nPrevHeight <= 4218000) {
+    } else if (nHeight <= 4218000) {
         nSubsidyBase = 0.9 * COIN;
-    } else if (nPrevHeight <= 4380000) {
+    } else if (nHeight <= 4380000) {
         nSubsidyBase = 0.8 * COIN;
-    } else if (nPrevHeight <= 4542000) {
+    } else if (nHeight <= 4542000) {
         nSubsidyBase = 0.7 * COIN;
-    } else if (nPrevHeight <= 4704000) {
+    } else if (nHeight <= 4704000) {
         nSubsidyBase = 0.6 * COIN;
-    } else if (nPrevHeight <= 4866000) {
+    } else if (nHeight <= 4866000) {
         nSubsidyBase = 0.5 * COIN;
-    } else if (nPrevHeight <= 5028000) {
+    } else if (nHeight <= 5028000) {
         nSubsidyBase = 0.4 * COIN;
-    } else if (nPrevHeight <= 5190000) {
+    } else if (nHeight <= 5190000) {
         nSubsidyBase = 0.3 * COIN;
-    } else if (nPrevHeight <= 5352000) {
+    } else if (nHeight <= 5352000) {
         nSubsidyBase = 0.2 * COIN;
-    } else if (nPrevHeight <= 5514000) {
+    } else if (nHeight <= 5514000) {
         nSubsidyBase = 0.1 * COIN;
     } else {
         nSubsidyBase = 0;
@@ -3779,11 +3780,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     bool developmentTransaction = developmentFundReward == 0;// if founder reward is 0 no need to check
 
 
-
-
-
-
-
     // Must check for duplicate inputs (see CVE-2018-17144)
     for (const auto& tx : block.vtx) {
 
@@ -3808,17 +3804,23 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
 
     }
 
-    if(!founderTransaction) {
-		LogPrintf("CheckBlock() -- Founder payment of %s is not found\n", block.txoutFounder.ToString().c_str());
-		return state.DoS(0, error("CheckBlock(): transaction %s does not contains founder transaction",
-				block.txoutFounder.ToString().c_str()), REJECT_INVALID, "founder-not-found");
+	if (nHeight > 1440 && nHeight <= 2250) {
+		LogPrintf("Skip CheckBlock() -- Founder payment\n");
+	} else {
+		
+		if (!founderTransaction) {
+			LogPrintf("CheckBlock() -- Founder payment of %s is not found\n", block.txoutFounder.ToString().c_str());
+			return state.DoS(0, error("CheckBlock(): transaction %s does not contains founder transaction",
+					block.txoutFounder.ToString().c_str()), REJECT_INVALID, "founder-not-found");
+		}
+		
+		if (!developmentTransaction) {
+			LogPrintf("CheckBlock() -- Development payment of %s is not found\n", block.txoutDevelopment.ToString().c_str());
+			return state.DoS(0, error("CheckBlock(): transaction %s does not contains txoutDevelopment transaction",
+					block.txoutDevelopment.ToString().c_str()), REJECT_INVALID, "development-not-found");
+		}		
+	
 	}
-    
-    if(!developmentTransaction) {
-		LogPrintf("CheckBlock() -- Founder payment of %s is not found\n", block.txoutDevelopment.ToString().c_str());
-		return state.DoS(0, error("CheckBlock(): transaction %s does not contains txoutDevelopment transaction",
-				block.txoutDevelopment.ToString().c_str()), REJECT_INVALID, "development-not-found");
-	}    
 
 
     
