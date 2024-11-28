@@ -2104,11 +2104,11 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     /// Ethanexo: Check superblock start
 
     // make sure old budget is the real one
-    if (pindex->nHeight == chainparams.GetConsensus().nSuperblockStartBlock &&
-        chainparams.GetConsensus().nSuperblockStartHash != uint256() &&
-        block_hash != chainparams.GetConsensus().nSuperblockStartHash)
-            return state.DoS(100, error("ConnectBlock(): invalid superblock start"),
-                             REJECT_INVALID, "bad-sb-start");
+    // if (pindex->nHeight == chainparams.GetConsensus().nSuperblockStartBlock &&
+        // chainparams.GetConsensus().nSuperblockStartHash != uint256() &&
+        // block_hash != chainparams.GetConsensus().nSuperblockStartHash)
+            // return state.DoS(100, error("ConnectBlock(): invalid superblock start"),
+                             // REJECT_INVALID, "bad-sb-start");
 
     /// END Ethanexo
 

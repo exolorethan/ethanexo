@@ -172,8 +172,8 @@ public:
         consensus.nBudgetPaymentsStartBlock   = INT_MAX; // actual historical value
         consensus.nBudgetPaymentsCycleBlocks  = 21600; // ~(60*24*30)/2
         consensus.nBudgetPaymentsWindowBlocks = 100;
-        consensus.nSuperblockStartBlock       = 10000; // Hardfork date to re-enable SuperBlocks logic (controlling via spork instead of chain-params)
-        consensus.nSuperblockStartHash        = uint256S("00000000000002f5a3089ba562fb42939756818b4e47f53fad042f6f734c5410");
+        consensus.nSuperblockStartBlock       = INT_MAX; // Hardfork date to re-enable SuperBlocks logic (controlling via spork instead of chain-params)
+        consensus.nSuperblockStartHash        = uint256();
         consensus.nSuperblockCycle            = 21600; // ~(60*24*30)/2
 
         /** Governance **/
@@ -258,10 +258,10 @@ public:
         consensus.masternodeCollateral = 360000;
 
         // The best chain should have at least this much work.
-        consensus.nMinimumChainWork = uint256S("0000000000000000000000000000000000000000000000000000000000000000");  
+        consensus.nMinimumChainWork = uint256S("000000000000000000000000000000000000000000000000000ae096d68a1d3a");   //9999
 
         // By default assume that the signatures in ancestors of this block are valid.
-        consensus.defaultAssumeValid = uint256S("0000036116f8116cc83fc741d74a91f70dfb59942cdb227a3a5fbf0d2fba53fe"); 
+        consensus.defaultAssumeValid = uint256S("000000000922a787d5142108f8480c406c63e5095c68c880990872d25f5cf507");  //9999
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -344,6 +344,8 @@ public:
             {
                 // Launch checkpoints
                 {0,      uint256S("0000036116f8116cc83fc741d74a91f70dfb59942cdb227a3a5fbf0d2fba53fe")},
+                {6001,      uint256S("0000000001f05952c79f6d661841544e3769febc60afd2673ece00de124e9ae2")},
+                {9999,      uint256S("000000000922a787d5142108f8480c406c63e5095c68c880990872d25f5cf507")},
                 
                 
             }
